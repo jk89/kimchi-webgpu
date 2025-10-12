@@ -41,11 +41,4 @@ describe('WebGPU GPU unit tests', () => {
         expect(result).to.equal(42);
         readback.unmap();
     });
-
-    // Signal the browser runner after all tests complete
-    after(() => {
-        if (typeof window !== 'undefined') {
-            (window as any).testsFinished = true;
-        }
-    });
 });
