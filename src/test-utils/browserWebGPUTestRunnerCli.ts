@@ -8,7 +8,7 @@ import path from 'path';
 import puppeteer from 'puppeteer';
 
 async function main() {
-    const entryFile = path.resolve(ROOT_DIR, 'src/test-utils/index.ts');
+    const entryFile = path.resolve(ROOT_DIR, 'src/tests/index.ts');
     await bundleTests(entryFile);
 
     const { url } = await startServer();
