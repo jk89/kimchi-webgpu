@@ -32,7 +32,9 @@ export async function startServer(port = 3001) {
     return new Promise<{ server: any; url: string }>((resolve) => {
         const server = app.listen(port, () => {
             const url = `http://localhost:${port}/index.html`;
-            console.log(`Server running at: ${url}. Please open this in brave with the nessesary flags.`);
+            console.log(
+                `Server running at: ${url}. Please open this in brave with the nessesary flags.`
+            );
             resolve({ server, url });
         });
     });
@@ -55,6 +57,9 @@ export async function bundleTests(
         outfile,
         platform: 'browser',
         define: { 'process.env.NODE_ENV': '"test"' },
+        loader: {
+            '.wgsl': 'text',
+        },
     });
 
     // Create a minimal index.html if missing
