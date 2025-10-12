@@ -31,15 +31,16 @@ async function main() {
 
     page.on('console', async (msg) => {
         const args = await Promise.all(msg.args().map((a) => a.jsonValue()));
+        if (args.length === 0 || (args.length === 1 && args[0] === '')) return; // skip empty
         console.log('[browser]', ...args);
     });
 
     await page.goto(url, { waitUntil: 'domcontentloaded' });
 
-    await page.waitForFunction(
-        () => (window as any).testsFinished === true,
-        { polling: 100, timeout: 0 }
-    );
+    await page.waitForFunction(() => (window as any).testsFinished === true, {
+        polling: 100,
+        timeout: 0,
+    });
 
     const failuresCount = await page.evaluate(
         () => (window as any).testsFailures || 0

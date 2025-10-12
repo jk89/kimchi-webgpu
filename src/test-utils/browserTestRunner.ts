@@ -1,65 +1,196 @@
 interface Test {
-    name: string;
-    fn: () => void | Promise<void>;
+  name: string;
+  fn: (() => void | Promise<void>) | null;
+  timeout?: number;
+  mode?: "normal" | "skip" | "only";
 }
 
-const tests: Test[] = [];
+interface Suite {
+  name: string;
+  tests: Test[];
+  beforeAllFns: (() => void | Promise<void>)[];
+  beforeEachFns: (() => void | Promise<void>)[];
+  afterEachFns: (() => void | Promise<void>)[];
+  afterAllFns: (() => void | Promise<void>)[];
+  suites: Suite[];
+}
 
-// Hooks
-let beforeAllFn: (() => void | Promise<void>) | undefined;
-let beforeEachFn: (() => void | Promise<void>) | undefined;
-let afterEachFn: (() => void | Promise<void>) | undefined;
-let afterAllFn: (() => void | Promise<void>) | undefined;
+let currentSuite: Suite = {
+  name: "root",
+  tests: [],
+  beforeAllFns: [],
+  beforeEachFns: [],
+  afterEachFns: [],
+  afterAllFns: [],
+  suites: [],
+};
+
+const rootSuite = currentSuite;
+let hasOnly = false;
+
+// === Definition API ===
 
 export function describe(name: string, fn: () => void) {
-    fn();
+  const parent = currentSuite;
+  const suite: Suite = {
+    name,
+    tests: [],
+    beforeAllFns: [],
+    beforeEachFns: [],
+    afterEachFns: [],
+    afterAllFns: [],
+    suites: [],
+  };
+
+  parent.suites.push(suite);
+  currentSuite = suite;
+  fn();
+  currentSuite = parent;
 }
 
-export function it(name: string, fn: () => void | Promise<void>) {
-    tests.push({ name, fn });
+function addTest(
+  name: string,
+  fn: (() => void | Promise<void>) | null,
+  timeout = 2000,
+  mode: "normal" | "skip" | "only" = "normal"
+) {
+  if (mode === "only") hasOnly = true;
+  currentSuite.tests.push({ name, fn, timeout, mode });
 }
 
-// Hooks API
-export function beforeAll(fn: () => void | Promise<void>) { beforeAllFn = fn; }
-export function beforeEach(fn: () => void | Promise<void>) { beforeEachFn = fn; }
-export function afterEach(fn: () => void | Promise<void>) { afterEachFn = fn; }
-export function after(fn: () => void | Promise<void>) { afterAllFn = fn; }
+export function it(name: string, fn: () => void | Promise<void>, timeout = 2000) {
+  addTest(name, fn, timeout, "normal");
+}
+export const test = it;
 
-export async function runTests() {
-    const container = document.createElement('div');
-    container.id = 'test-results';
-    document.body.appendChild(container);
+it.skip = (name: string, _fn?: () => void | Promise<void>) => addTest(name, null, 0, "skip");
+it.only = (name: string, fn: () => void | Promise<void>, timeout = 2000) =>
+  addTest(name, fn, timeout, "only");
+test.skip = it.skip;
+test.only = it.only;
 
-    let failures = 0;
+// === Hooks ===
+export function beforeAll(fn: () => void | Promise<void>) {
+  currentSuite.beforeAllFns.push(fn);
+}
+export function beforeEach(fn: () => void | Promise<void>) {
+  currentSuite.beforeEachFns.push(fn);
+}
+export function afterEach(fn: () => void | Promise<void>) {
+  currentSuite.afterEachFns.push(fn);
+}
+export function after(fn: () => void | Promise<void>) {
+  currentSuite.afterAllFns.push(fn);
+}
 
-    if (beforeAllFn) await beforeAllFn();
+// === Helpers ===
+function withTimeout<T>(promise: Promise<T>, ms: number, testName: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`Test timed out after ${ms} ms: ${testName}`)), ms);
+    promise
+      .then((v) => {
+        clearTimeout(timer);
+        resolve(v);
+      })
+      .catch((err) => {
+        clearTimeout(timer);
+        reject(err);
+      });
+  });
+}
 
-    for (const t of tests) {
-        if (beforeEachFn) await beforeEachFn();
+// === Runner ===
+async function runSuite(
+  suite: Suite,
+  depth = 0,
+  parentHooks?: {
+    beforeEach: (() => void | Promise<void>)[];
+    afterEach: (() => void | Promise<void>)[];
+  },
+  parentEl?: HTMLElement
+) {
+  const indent = "  ".repeat(depth);
+  const beforeEachChain = [...(parentHooks?.beforeEach ?? []), ...suite.beforeEachFns];
+  const afterEachChain = [...suite.afterEachFns, ...(parentHooks?.afterEach ?? [])];
 
-        try {
-            await t.fn();
-            console.log(`✅ ${t.name}`);
-            container.innerHTML += `<div style="color:green;">✅ ${t.name}</div>`;
-        } catch (err) {
-            failures++;
-            console.error(`❌ ${t.name}`, err);
-            container.innerHTML += `<div style="color:red;">❌ ${t.name}: ${err}</div>`;
-        }
+  const suiteEl = document.createElement("section");
+  suiteEl.style.marginLeft = parentEl ? "20px" : "0";
+  suiteEl.style.padding = "8px";
+  suiteEl.style.borderLeft = parentEl ? "2px solid #ccc" : "none";
 
-        if (afterEachFn) await afterEachFn();
+  const title = document.createElement("h3");
+  title.textContent = suite.name;
+  title.style.fontFamily = "monospace";
+  title.style.color = "#333";
+  suiteEl.appendChild(title);
+  (parentEl ?? document.body).appendChild(suiteEl);
+
+  console.log(`${indent}${suite.name}`);
+
+  for (const fn of suite.beforeAllFns) await fn();
+
+  const runnableTests = hasOnly
+    ? suite.tests.filter((t) => t.mode === "only")
+    : suite.tests;
+
+  for (const t of runnableTests) {
+    const testEl = document.createElement("div");
+    testEl.style.marginLeft = "16px";
+    testEl.style.fontFamily = "monospace";
+    suiteEl.appendChild(testEl);
+
+    const prefix = indent + "  ";
+
+    if (t.mode === "skip" || t.fn === null) {
+      console.log(`${prefix}⏭️  ${t.name}`);
+      testEl.textContent = `⏭️  ${t.name} (skipped)`;
+      testEl.style.color = "gray";
+      continue;
     }
 
-    if (afterAllFn) await afterAllFn();
+    try {
+      for (const fn of beforeEachChain) await fn();
 
-    // Signal Puppeteer that tests finished
-    (globalThis as any).testsFinished = true;
-    (globalThis as any).testsFailures = failures;
+      const result = withTimeout(Promise.resolve(t.fn()), t.timeout!, t.name);
+      await result;
+
+      console.log(`${prefix}✅ ${t.name}`);
+      testEl.textContent = `✅ ${t.name}`;
+      testEl.style.color = "green";
+    } catch (err) {
+      console.error(`${prefix}❌ ${t.name}`, err);
+      testEl.textContent = `❌ ${t.name}: ${err}`;
+      testEl.style.color = "red";
+    } finally {
+      for (const fn of afterEachChain) await fn();
+    }
+  }
+
+  for (const child of suite.suites) {
+    await runSuite(child, depth + 1, { beforeEach: beforeEachChain, afterEach: afterEachChain }, suiteEl);
+  }
+
+  for (const fn of suite.afterAllFns) await fn();
 }
 
-// Attach to globalThis **before any specs are imported**
+export async function runTests() {
+  const container = document.createElement("div");
+  container.id = "test-results";
+  container.style.fontFamily = "sans-serif";
+  container.style.fontSize = "14px";
+  container.style.lineHeight = "1.4";
+  container.style.margin = "20px";
+  document.body.appendChild(container);
+
+  await runSuite(rootSuite, 0, undefined, container);
+
+  (globalThis as any).testsFinished = true;
+}
+
+// === Globals ===
 (globalThis as any).describe = describe;
 (globalThis as any).it = it;
+(globalThis as any).test = test;
 (globalThis as any).beforeAll = beforeAll;
 (globalThis as any).beforeEach = beforeEach;
 (globalThis as any).afterEach = afterEach;
