@@ -1,6 +1,5 @@
-// Pallas curve Multi-Scalar Multiplication (MSM)
+// Pallas curve MSM with Montgomery multiplication
 // Curve equation: y² = x³ + 5
-// Field modulus p = 0x40000000000000000000000000000000224698fc094cf91b992d30ed00000001
 
 struct Limbs {
     limbs: array<u32, 8>
@@ -11,23 +10,41 @@ struct Point {
     y: Limbs
 }
 
+struct ProjectivePoint {
+    X: Limbs,
+    Y: Limbs,
+    Z: Limbs
+}
+
 @group(0) @binding(0) var<storage, read> scalars: array<Limbs>;
 @group(0) @binding(1) var<storage, read> points: array<Point>;
 @group(0) @binding(2) var<storage, read_write> out: array<Point>;
 
-// Pallas base field modulus p (little-endian u32 limbs)
 const PALLAS_P: array<u32, 8> = array<u32, 8>(
     0x00000001u, 0x992d30edu, 0x094cf91bu, 0x224698fcu,
     0x00000000u, 0x00000000u, 0x00000000u, 0x40000000u
 );
 
-// p - 2 for Fermat's little theorem (modular inverse)
+// Montgomery constant: R = 2^256 mod p
+const MONTGOMERY_R: array<u32, 8> = array<u32, 8>(
+    0xfffffffe, 0x5588b13, 0x6730d2a0, 0xf4f63f58,
+    0xffffffff, 0xffffffff, 0xffffffff, 0x0
+);
+
+// Montgomery constant: R^2 mod p (for converting to Montgomery form)
+const MONTGOMERY_R2: array<u32, 8> = array<u32, 8>(
+    0x8c46eb20, 0x748d9d99, 0x7523e5ce, 0x1a5f79f5,
+    0xffd8ddee, 0x0, 0x0, 0x0
+);
+
+// p' = -p^(-1) mod 2^32 (used in Montgomery reduction)
+const P_PRIME: u32 = 0xffffffffu;
+
 const P_MINUS_2: array<u32, 8> = array<u32, 8>(
     0xFFFFFFFFu, 0x992d30ecu, 0x094cf91bu, 0x224698fcu,
     0xFFFFFFFFu, 0xFFFFFFFFu, 0xFFFFFFFFu, 0x3FFFFFFFu
 );
 
-// Compare two 256-bit numbers: returns true if a >= b
 fn gte(a: array<u32, 8>, b: array<u32, 8>) -> bool {
     var i: i32 = 7;
     loop {
@@ -39,15 +56,6 @@ fn gte(a: array<u32, 8>, b: array<u32, 8>) -> bool {
     return true;
 }
 
-// Check if two 256-bit numbers are equal
-fn eq(a: array<u32, 8>, b: array<u32, 8>) -> bool {
-    for (var i = 0u; i < 8u; i = i + 1u) {
-        if (a[i] != b[i]) { return false; }
-    }
-    return true;
-}
-
-// Subtract b from a (assumes a >= b)
 fn sub_no_borrow(a: array<u32, 8>, b: array<u32, 8>) -> array<u32, 8> {
     var result: array<u32, 8>;
     var borrow: u32 = 0u;
@@ -69,17 +77,13 @@ fn sub_no_borrow(a: array<u32, 8>, b: array<u32, 8>) -> array<u32, 8> {
     return result;
 }
 
-// Add two 256-bit numbers modulo p
 fn add_mod(a: array<u32, 8>, b: array<u32, 8>) -> array<u32, 8> {
     var result: array<u32, 8>;
     var carry: u32 = 0u;
     
     for (var i = 0u; i < 8u; i = i + 1u) {
-        let ai = a[i];
-        let bi = b[i];
-        
-        let sum_low = ai + bi;
-        let carry_from_low = u32(sum_low < ai);
+        let sum_low = a[i] + b[i];
+        let carry_from_low = u32(sum_low < a[i]);
         
         let sum_with_carry = sum_low + carry;
         let carry_from_carry = u32(sum_with_carry < sum_low);
@@ -95,7 +99,6 @@ fn add_mod(a: array<u32, 8>, b: array<u32, 8>) -> array<u32, 8> {
     return result;
 }
 
-// Subtract b from a modulo p
 fn sub_mod(a: array<u32, 8>, b: array<u32, 8>) -> array<u32, 8> {
     if (gte(a, b)) {
         return sub_no_borrow(a, b);
@@ -105,7 +108,6 @@ fn sub_mod(a: array<u32, 8>, b: array<u32, 8>) -> array<u32, 8> {
     }
 }
 
-// Multiply a * b where b is single u32, add to accumulator with carry
 fn mul_add_carry(a: u32, b: u32, acc: u32, carry: ptr<function, u32>) -> u32 {
     let a_lo = a & 0xFFFFu;
     let a_hi = a >> 16u;
@@ -135,57 +137,97 @@ fn mul_add_carry(a: u32, b: u32, acc: u32, carry: ptr<function, u32>) -> u32 {
     return final_result;
 }
 
-// Multiply two 256-bit numbers modulo p
-fn mul_mod(a: array<u32, 8>, b: array<u32, 8>) -> array<u32, 8> {
-    var result: array<u32, 16>;
+// Montgomery reduction: compute (T * R^-1) mod p
+// Input: 512-bit number T
+// Output: 256-bit number T * R^-1 mod p
+fn montgomery_reduce(t: array<u32, 16>) -> array<u32, 8> {
+    var temp = t;
     
-    // Schoolbook multiplication
+    // Montgomery reduction loop
+    for (var i = 0u; i < 8u; i = i + 1u) {
+        // m = temp[i] * P_PRIME mod 2^32
+        let m = temp[i] * P_PRIME;
+        
+        // temp += m * p (this makes temp[i] = 0)
+        var carry: u32 = 0u;
+        for (var j = 0u; j < 8u; j = j + 1u) {
+            temp[i + j] = mul_add_carry(m, PALLAS_P[j], temp[i + j], &carry);
+        }
+        
+        // Propagate carry to high limbs
+        var k = i + 8u;
+        loop {
+            if (k >= 16u || carry == 0u) { break; }
+            let sum = temp[k] + carry;
+            carry = u32(sum < temp[k]);
+            temp[k] = sum;
+            k = k + 1u;
+        }
+    }
+    
+    // Extract upper 256 bits (temp >> 256)
+    var result: array<u32, 8>;
+    for (var i = 0u; i < 8u; i = i + 1u) {
+        result[i] = temp[i + 8u];
+    }
+    
+    // Final conditional subtraction
+    if (gte(result, PALLAS_P)) {
+        result = sub_no_borrow(result, PALLAS_P);
+    }
+    
+    return result;
+}
+
+// Montgomery multiplication: (a * b * R^-1) mod p
+fn mont_mul(a: array<u32, 8>, b: array<u32, 8>) -> array<u32, 8> {
+    var product: array<u32, 16>;
+    
+    // Compute a * b
     for (var i = 0u; i < 8u; i = i + 1u) {
         var carry: u32 = 0u;
         for (var j = 0u; j < 8u; j = j + 1u) {
-            result[i + j] = mul_add_carry(a[i], b[j], result[i + j], &carry);
+            product[i + j] = mul_add_carry(a[i], b[j], product[i + j], &carry);
         }
-        result[i + 8u] = carry;
+        product[i + 8u] = carry;
     }
     
-    // Reduce modulo p using repeated subtraction
-    // Extract high and low parts
-    var low: array<u32, 8>;
-    for (var i = 0u; i < 8u; i = i + 1u) {
-        low[i] = result[i];
-    }
-    
-    // Simple reduction (not efficient but correct)
-    for (var iter = 0u; iter < 512u; iter = iter + 1u) {
-        if (gte(low, PALLAS_P)) {
-            low = sub_no_borrow(low, PALLAS_P);
-        } else {
-            break;
-        }
-    }
-    
-    return low;
+    return montgomery_reduce(product);
 }
 
-// Modular inverse using Fermat's Little Theorem: a^(-1) = a^(p-2) mod p
-fn mod_inverse(a: array<u32, 8>) -> array<u32, 8> {
+// Convert to Montgomery form: a * R mod p
+fn to_montgomery(a: array<u32, 8>) -> array<u32, 8> {
+    return mont_mul(a, MONTGOMERY_R2);
+}
+
+// Convert from Montgomery form: a * R^-1 mod p
+fn from_montgomery(a: array<u32, 8>) -> array<u32, 8> {
+    var temp: array<u32, 16>;
+    for (var i = 0u; i < 8u; i = i + 1u) {
+        temp[i] = a[i];
+    }
+    return montgomery_reduce(temp);
+}
+
+// Modular inverse in Montgomery form
+fn mod_inverse_mont(a: array<u32, 8>) -> array<u32, 8> {
     var result: array<u32, 8>;
     result[0] = 1u;
     for (var i = 1u; i < 8u; i = i + 1u) {
         result[i] = 0u;
     }
+    result = to_montgomery(result); // 1 in Montgomery form
     
-    var base = a;
+    var base = a; // Already in Montgomery form
     
-    // Square-and-multiply algorithm
     for (var limb_idx = 0u; limb_idx < 8u; limb_idx = limb_idx + 1u) {
         var bits = P_MINUS_2[limb_idx];
         
         for (var bit = 0u; bit < 32u; bit = bit + 1u) {
             if ((bits & 1u) == 1u) {
-                result = mul_mod(result, base);
+                result = mont_mul(result, base);
             }
-            base = mul_mod(base, base);
+            base = mont_mul(base, base);
             bits = bits >> 1u;
         }
     }
@@ -193,107 +235,171 @@ fn mod_inverse(a: array<u32, 8>) -> array<u32, 8> {
     return result;
 }
 
-// Check if point is at infinity (all zeros)
-fn is_infinity(p: Point) -> bool {
+fn is_infinity_proj(p: ProjectivePoint) -> bool {
     for (var i = 0u; i < 8u; i = i + 1u) {
-        if (p.x.limbs[i] != 0u || p.y.limbs[i] != 0u) {
+        if (p.Z.limbs[i] != 0u) {
             return false;
         }
     }
     return true;
 }
 
-// Check if two points are equal
-fn points_equal(p: Point, q: Point) -> bool {
-    return eq(p.x.limbs, q.x.limbs) && eq(p.y.limbs, q.y.limbs);
-}
-
-// Point doubling: 2*P for curve y² = x³ + 5
-fn point_double(p: Point) -> Point {
-    if (is_infinity(p)) { return p; }
-    
-    // λ = (3x²) / (2y)
-    let x_squared = mul_mod(p.x.limbs, p.x.limbs);
-    let three_x_squared = add_mod(add_mod(x_squared, x_squared), x_squared);
-    
-    let two_y = add_mod(p.y.limbs, p.y.limbs);
-    let two_y_inv = mod_inverse(two_y);
-    
-    let lambda = mul_mod(three_x_squared, two_y_inv);
-    
-    // x' = λ² - 2x
-    let lambda_squared = mul_mod(lambda, lambda);
-    let two_x = add_mod(p.x.limbs, p.x.limbs);
-    let x_new = sub_mod(lambda_squared, two_x);
-    
-    // y' = λ(x - x') - y
-    let x_diff = sub_mod(p.x.limbs, x_new);
-    let lambda_x_diff = mul_mod(lambda, x_diff);
-    let y_new = sub_mod(lambda_x_diff, p.y.limbs);
-    
-    var result: Point;
-    result.x.limbs = x_new;
-    result.y.limbs = y_new;
+fn to_projective(p: Point) -> ProjectivePoint {
+    var result: ProjectivePoint;
+    // Convert to Montgomery form
+    result.X.limbs = to_montgomery(p.x.limbs);
+    result.Y.limbs = to_montgomery(p.y.limbs);
+    result.Z.limbs[0] = 1u;
+    for (var i = 1u; i < 8u; i = i + 1u) {
+        result.Z.limbs[i] = 0u;
+    }
+    result.Z.limbs = to_montgomery(result.Z.limbs);
     return result;
 }
 
-// Point addition: P + Q for curve y² = x³ + 5
-fn point_add(p: Point, q: Point) -> Point {
-    if (is_infinity(p)) { return q; }
-    if (is_infinity(q)) { return p; }
-    
-    // Check if points are equal (use doubling instead)
-    if (points_equal(p, q)) {
-        return point_double(p);
+fn to_affine(p: ProjectivePoint) -> Point {
+    if (is_infinity_proj(p)) {
+        var inf: Point;
+        for (var i = 0u; i < 8u; i = i + 1u) {
+            inf.x.limbs[i] = 0u;
+            inf.y.limbs[i] = 0u;
+        }
+        return inf;
     }
     
-    // λ = (q.y - p.y) / (q.x - p.x)
-    let dy = sub_mod(q.y.limbs, p.y.limbs);
-    let dx = sub_mod(q.x.limbs, p.x.limbs);
-    let dx_inv = mod_inverse(dx);
-    let lambda = mul_mod(dy, dx_inv);
-    
-    // x' = λ² - p.x - q.x
-    let lambda_squared = mul_mod(lambda, lambda);
-    let x_sum = add_mod(p.x.limbs, q.x.limbs);
-    let x_new = sub_mod(lambda_squared, x_sum);
-    
-    // y' = λ(p.x - x') - p.y
-    let x_diff = sub_mod(p.x.limbs, x_new);
-    let lambda_x_diff = mul_mod(lambda, x_diff);
-    let y_new = sub_mod(lambda_x_diff, p.y.limbs);
+    let z_inv = mod_inverse_mont(p.Z.limbs);
     
     var result: Point;
-    result.x.limbs = x_new;
-    result.y.limbs = y_new;
+    result.x.limbs = mont_mul(p.X.limbs, z_inv);
+    result.y.limbs = mont_mul(p.Y.limbs, z_inv);
+    
+    // Convert back from Montgomery form
+    result.x.limbs = from_montgomery(result.x.limbs);
+    result.y.limbs = from_montgomery(result.y.limbs);
+    
     return result;
 }
 
-// Scalar multiplication using double-and-add
-fn scalar_mul(scalar: Limbs, point: Point) -> Point {
-    var result: Point;
-    // Initialize to point at infinity
+fn point_double_proj(p: ProjectivePoint) -> ProjectivePoint {
+    if (is_infinity_proj(p)) { return p; }
+    
+    let XX = mont_mul(p.X.limbs, p.X.limbs);
+    let YY = mont_mul(p.Y.limbs, p.Y.limbs);
+    let YYYY = mont_mul(YY, YY);
+    let ZZ = mont_mul(p.Z.limbs, p.Z.limbs);
+    
+    var S = add_mod(p.X.limbs, YY);
+    S = mont_mul(S, S);
+    S = sub_mod(S, XX);
+    S = sub_mod(S, YYYY);
+    S = add_mod(S, S);
+    
+    var M = add_mod(XX, XX);
+    M = add_mod(M, XX);
+    
+    var T = mont_mul(M, M);
+    T = sub_mod(T, add_mod(S, S));
+    
+    var result: ProjectivePoint;
+    result.X.limbs = T;
+    
+    var Y3 = sub_mod(S, T);
+    Y3 = mont_mul(M, Y3);
+    var YYYY8 = add_mod(YYYY, YYYY);
+    YYYY8 = add_mod(YYYY8, YYYY8);
+    YYYY8 = add_mod(YYYY8, YYYY8);
+    result.Y.limbs = sub_mod(Y3, YYYY8);
+    
+    var Z3 = add_mod(p.Y.limbs, p.Z.limbs);
+    Z3 = mont_mul(Z3, Z3);
+    Z3 = sub_mod(Z3, YY);
+    Z3 = sub_mod(Z3, ZZ);
+    result.Z.limbs = Z3;
+    
+    return result;
+}
+
+fn point_add_proj(p: ProjectivePoint, q: ProjectivePoint) -> ProjectivePoint {
+    if (is_infinity_proj(p)) { return q; }
+    if (is_infinity_proj(q)) { return p; }
+    
+    let Z1Z1 = mont_mul(p.Z.limbs, p.Z.limbs);
+    let Z2Z2 = mont_mul(q.Z.limbs, q.Z.limbs);
+    
+    let U1 = mont_mul(p.X.limbs, Z2Z2);
+    let U2 = mont_mul(q.X.limbs, Z1Z1);
+    
+    let S1 = mont_mul(p.Y.limbs, mont_mul(q.Z.limbs, Z2Z2));
+    let S2 = mont_mul(q.Y.limbs, mont_mul(p.Z.limbs, Z1Z1));
+    
+    var same_x = true;
+    var same_y = true;
     for (var i = 0u; i < 8u; i = i + 1u) {
-        result.x.limbs[i] = 0u;
-        result.y.limbs[i] = 0u;
+        if (U1[i] != U2[i]) { same_x = false; }
+        if (S1[i] != S2[i]) { same_y = false; }
+    }
+    if (same_x && same_y) {
+        return point_double_proj(p);
     }
     
-    var temp = point;
+    let H = sub_mod(U2, U1);
+    var I = add_mod(H, H);
+    I = mont_mul(I, I);
+    let J = mont_mul(H, I);
     
-    // Double-and-add algorithm (process bits from LSB to MSB)
+    var r = sub_mod(S2, S1);
+    r = add_mod(r, r);
+    
+    let V = mont_mul(U1, I);
+    
+    var X3 = mont_mul(r, r);
+    X3 = sub_mod(X3, J);
+    X3 = sub_mod(X3, add_mod(V, V));
+    
+    var Y3 = sub_mod(V, X3);
+    Y3 = mont_mul(r, Y3);
+    let S1J = mont_mul(S1, J);
+    let S1J2 = add_mod(S1J, S1J);
+    Y3 = sub_mod(Y3, S1J2);
+    
+    var Z3 = add_mod(p.Z.limbs, q.Z.limbs);
+    Z3 = mont_mul(Z3, Z3);
+    Z3 = sub_mod(Z3, Z1Z1);
+    Z3 = sub_mod(Z3, Z2Z2);
+    Z3 = mont_mul(Z3, H);
+    
+    var result: ProjectivePoint;
+    result.X.limbs = X3;
+    result.Y.limbs = Y3;
+    result.Z.limbs = Z3;
+    return result;
+}
+
+fn scalar_mul(scalar: Limbs, point: Point) -> Point {
+    let p_proj = to_projective(point);
+    
+    var result: ProjectivePoint;
+    for (var i = 0u; i < 8u; i = i + 1u) {
+        result.X.limbs[i] = 0u;
+        result.Y.limbs[i] = 0u;
+        result.Z.limbs[i] = 0u;
+    }
+    
+    var base = p_proj;
+    
     for (var limb_idx = 0u; limb_idx < 8u; limb_idx = limb_idx + 1u) {
         var bits = scalar.limbs[limb_idx];
         
         for (var bit = 0u; bit < 32u; bit = bit + 1u) {
             if ((bits & 1u) == 1u) {
-                result = point_add(result, temp);
+                result = point_add_proj(result, base);
             }
-            temp = point_double(temp);
+            base = point_double_proj(base);
             bits = bits >> 1u;
         }
     }
     
-    return result;
+    return to_affine(result);
 }
 
 @compute @workgroup_size(64)
@@ -304,6 +410,5 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         return;
     }
     
-    // Compute scalar multiplication: out[idx] = scalars[idx] * points[idx]
     out[idx] = scalar_mul(scalars[idx], points[idx]);
 }

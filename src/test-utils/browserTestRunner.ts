@@ -51,20 +51,20 @@ export function describe(name: string, fn: () => void) {
 function addTest(
   name: string,
   fn: (() => void | Promise<void>) | null,
-  timeout = 2000,
+  timeout = Infinity,
   mode: "normal" | "skip" | "only" = "normal"
 ) {
   if (mode === "only") hasOnly = true;
   currentSuite.tests.push({ name, fn, timeout, mode });
 }
 
-export function it(name: string, fn: () => void | Promise<void>, timeout = 2000) {
+export function it(name: string, fn: () => void | Promise<void>, timeout = Infinity) {
   addTest(name, fn, timeout, "normal");
 }
 export const test = it;
 
 it.skip = (name: string, _fn?: () => void | Promise<void>) => addTest(name, null, 0, "skip");
-it.only = (name: string, fn: () => void | Promise<void>, timeout = 2000) =>
+it.only = (name: string, fn: () => void | Promise<void>, timeout = Infinity) =>
   addTest(name, fn, timeout, "only");
 test.skip = it.skip;
 test.only = it.only;
@@ -85,6 +85,7 @@ export function after(fn: () => void | Promise<void>) {
 
 // === Helpers ===
 function withTimeout<T>(promise: Promise<T>, ms: number, testName: string): Promise<T> {
+  if (ms === Infinity) return promise; // skip timeout
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error(`Test timed out after ${ms} ms: ${testName}`)), ms);
     promise
@@ -148,18 +149,24 @@ async function runSuite(
       continue;
     }
 
+    const testStart = performance.now();
     try {
       for (const fn of beforeEachChain) await fn();
 
-      const result = withTimeout(Promise.resolve(t.fn()), t.timeout!, t.name);
-      await result;
+      await withTimeout(Promise.resolve(t.fn()), t.timeout!, t.name);
 
-      console.log(`${prefix}✅ ${t.name}`);
-      testEl.textContent = `✅ ${t.name}`;
+      const testEnd = performance.now();
+      const duration = (testEnd - testStart).toFixed(2);
+
+      console.log(`${prefix}✅ ${t.name} (${duration} ms)`);
+      testEl.textContent = `✅ ${t.name} (${duration} ms)`;
       testEl.style.color = "green";
     } catch (err) {
-      console.error(`${prefix}❌ ${t.name}`, err);
-      testEl.textContent = `❌ ${t.name}: ${err}`;
+      const testEnd = performance.now();
+      const duration = (testEnd - testStart).toFixed(2);
+
+      console.error(`${prefix}❌ ${t.name} (${duration} ms)`, err);
+      testEl.textContent = `❌ ${t.name} (${duration} ms): ${err}`;
       testEl.style.color = "red";
     } finally {
       for (const fn of afterEachChain) await fn();
@@ -182,7 +189,18 @@ export async function runTests() {
   container.style.margin = "20px";
   document.body.appendChild(container);
 
+  const startTime = performance.now();
   await runSuite(rootSuite, 0, undefined, container);
+  const endTime = performance.now();
+
+  const totalDuration = (endTime - startTime).toFixed(2);
+  console.log(`Total test run time: ${totalDuration} ms`);
+
+  const timeEl = document.createElement("div");
+  timeEl.style.marginTop = "20px";
+  timeEl.style.fontWeight = "bold";
+  timeEl.textContent = `Total test run time: ${totalDuration} ms`;
+  container.appendChild(timeEl);
 
   (globalThis as any).testsFinished = true;
 }

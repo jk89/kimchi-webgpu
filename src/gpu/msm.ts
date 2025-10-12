@@ -26,26 +26,15 @@ export async function gpuMSM(
     scalars: bigint[],
     points: Point[]
 ): Promise<Point[]> {
-    console.log(
-        'Scalars:',
-        scalars.map((s) => s.toString())
-    );
-    console.log(
-        'Points:',
-        points.map((p) => ({ x: p.x.toString(), y: p.y.toString() }))
-    );
-
     // Flatten scalars and points into limbs
     const scalarLimbs = new Uint32Array(scalars.length * 8);
     scalars.forEach((s, i) => scalarLimbs.set(toLimbs(s), i * 8));
-    console.log('Scalar limbs:', scalarLimbs);
 
     const pointLimbs = new Uint32Array(points.length * 16);
     points.forEach((p, i) => {
         pointLimbs.set(toLimbs(p.x), i * 16);
         pointLimbs.set(toLimbs(p.y), i * 16 + 8);
     });
-    console.log('Point limbs:', pointLimbs);
 
     // Storage buffers
     const scalarBuffer = device.createBuffer({
@@ -94,7 +83,6 @@ export async function gpuMSM(
     pass.setPipeline(pipeline);
     pass.setBindGroup(0, bindGroup);
     const workgroups = Math.ceil(scalars.length / 64);
-    console.log('Dispatching workgroups:', workgroups);
     pass.dispatchWorkgroups(workgroups);
     pass.end();
 
@@ -114,19 +102,12 @@ export async function gpuMSM(
     const resultArray = new Uint32Array(readBuffer.getMappedRange()).slice();
     readBuffer.unmap();
 
-    console.log('Result buffer limbs:', resultArray);
-
     const results: Point[] = [];
     for (let i = 0; i < scalars.length; i++) {
         const x = resultArray.slice(i * 16, i * 16 + 8);
         const y = resultArray.slice(i * 16 + 8, i * 16 + 16);
-        console.log(`Result ${i}: x limbs=${x}, y limbs=${y}`);
         results.push({ x: limbsToBigInt(x), y: limbsToBigInt(y) });
     }
 
-    console.log(
-        'Final results:',
-        results.map((p) => ({ x: p.x.toString(), y: p.y.toString() }))
-    );
     return results;
 }
