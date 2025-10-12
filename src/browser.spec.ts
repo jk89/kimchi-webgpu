@@ -1,0 +1,51 @@
+import { expect } from 'chai';
+
+describe('WebGPU GPU unit tests', () => {
+    it('navigator.gpu should exist', () => {
+        expect(navigator.gpu).to.exist;
+    });
+
+    it('can request a GPU device', async () => {
+        const adapter = await navigator.gpu.requestAdapter();
+        expect(adapter).to.exist;
+
+        const device = await adapter?.requestDevice();
+        expect(device).to.exist;
+    });
+
+    it('simple GPU buffer test', async () => {
+        const adapter = await navigator.gpu.requestAdapter();
+        const device = await adapter?.requestDevice();
+
+        const buffer = device.createBuffer({
+            size: 4,
+            usage: GPUBufferUsage.COPY_SRC | GPUBufferUsage.MAP_WRITE,
+        });
+
+        await buffer.mapAsync(GPUMapMode.WRITE);
+        const array = new Uint32Array(buffer.getMappedRange());
+        array[0] = 42;
+        buffer.unmap();
+
+        const readback = device.createBuffer({
+            size: 4,
+            usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+        });
+
+        const encoder = device.createCommandEncoder();
+        encoder.copyBufferToBuffer(buffer, 0, readback, 0, 4);
+        device.queue.submit([encoder.finish()]);
+
+        await readback.mapAsync(GPUMapMode.READ);
+        const result = new Uint32Array(readback.getMappedRange())[0];
+        expect(result).to.equal(42);
+        readback.unmap();
+    });
+
+    // Signal the browser runner after all tests complete
+    after(() => {
+        if (typeof window !== 'undefined') {
+            (window as any).testsFinished = true;
+        }
+    });
+});

@@ -1,0 +1,33 @@
+{
+    "name": "kimchi-webgpu",
+    "version": "1.0.0",
+    "description": "WebGPU accelerated Kimchi zero-knowledge prover",
+    "main": "index.js",
+    "type": "module",
+    "scripts": {
+        "build": "tsc",
+        "test:browser-cli": "npm run build && node dist/src/test-utils/browserWebGPUTestRunnerCli.js",
+        "test:browser": "npm run build && node dist/src/test-utils/browserWebGPUTestRunner.js"
+    },
+    "keywords": [
+        "Kimchi",
+        "Zero",
+        "Knowledge"
+    ],
+    "author": "Jonathan Kelsey",
+    "license": "UNLICENSED",
+    "devDependencies": {
+        "@types/chai": "^5.2.2",
+        "@types/express": "^5.0.3",
+        "@types/mocha": "^10.0.10",
+        "@types/node": "^24.7.2",
+        "@vitest/browser": "^3.2.4",
+        "@webgpu/types": "^0.1.65",
+        "chai": "^6.2.0",
+        "express": "^5.1.0",
+        "mocha": "^11.7.4",
+        "o1js": "^2.10.0",
+        "puppeteer": "^24.24.0",
+        "typescript": "^5.9.3"
+    }
+}
