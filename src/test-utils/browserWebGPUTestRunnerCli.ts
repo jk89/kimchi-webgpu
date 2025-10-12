@@ -36,7 +36,7 @@ async function main() {
 
     await page.goto(url, { waitUntil: 'domcontentloaded' });
 
-    const failures = await page.waitForFunction(
+    await page.waitForFunction(
         () => (window as any).testsFinished === true,
         { polling: 100, timeout: 0 }
     );
