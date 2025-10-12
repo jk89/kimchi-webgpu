@@ -23,12 +23,15 @@ export async function runTests() {
     container.id = 'test-results';
     document.body.appendChild(container);
 
+    let failures = 0;
+
     for (const t of tests) {
         try {
             await t.fn();
             console.log(`✅ ${t.name}`);
             container.innerHTML += `<div style="color:green;">✅ ${t.name}</div>`;
         } catch (err) {
+            failures++;
             console.error(`❌ ${t.name}`, err);
             container.innerHTML += `<div style="color:red;">❌ ${t.name}: ${err}</div>`;
         }
@@ -38,7 +41,7 @@ export async function runTests() {
 
     // Signal Puppeteer that tests finished
     (globalThis as any).testsFinished = true;
-    (globalThis as any).testsFailures = tests.length; // or calculate actual failures
+    (globalThis as any).testsFailures = failures;
 }
 
 // Attach to globalThis **before any specs are imported**
