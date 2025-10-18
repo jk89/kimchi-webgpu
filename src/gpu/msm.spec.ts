@@ -223,7 +223,7 @@ describe('GPU vs CPU full MSM', function () {
         const device = await adapter!.requestDevice();
 
         // Generate a large number of scalars and points
-        const N = 2000000;
+        const N = 4000000;
         const scalars: bigint[] = [];
         const points: { x: bigint; y: bigint }[] = [];
         for (let i = 0; i < N; i++) {

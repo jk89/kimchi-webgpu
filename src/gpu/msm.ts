@@ -26,17 +26,24 @@ export async function gpuMSM(
     scalars: bigint[],
     points: Point[]
 ): Promise<Point[]> {
-    // Flatten scalars and points into limbs
-    const scalarLimbs = new Uint32Array(scalars.length * 8);
-    scalars.forEach((s, i) => scalarLimbs.set(toLimbs(s), i * 8));
+    // Need to validate points and scalars have the same length
+    if (points.length !== scalars.length)
+        throw new Error('Points and Scalars must have the same length.');
 
-    const pointLimbs = new Uint32Array(points.length * 16);
+    const bufferSize = points.length * 8;
+
+    // Flatten scalars and points into limbs
+    const scalarLimbs = new Uint32Array(bufferSize);
+    const pointXLimbs = new Uint32Array(bufferSize);
+    const pointYLimbs = new Uint32Array(bufferSize);
+
+    scalars.forEach((s, i) => scalarLimbs.set(toLimbs(s), i * 8));
     points.forEach((p, i) => {
-        pointLimbs.set(toLimbs(p.x), i * 16);
-        pointLimbs.set(toLimbs(p.y), i * 16 + 8);
+        pointXLimbs.set(toLimbs(p.x), i * 8);
+        pointYLimbs.set(toLimbs(p.y), i * 8);
     });
 
-    // Storage buffers
+    // Input storage buffers
     const scalarBuffer = device.createBuffer({
         size: scalarLimbs.byteLength,
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
@@ -45,21 +52,40 @@ export async function gpuMSM(
     new Uint32Array(scalarBuffer.getMappedRange()).set(scalarLimbs);
     scalarBuffer.unmap();
 
-    const pointBuffer = device.createBuffer({
-        size: pointLimbs.byteLength,
+    const pointXBuffer = device.createBuffer({
+        size: pointXLimbs.byteLength,
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
         mappedAtCreation: true,
     });
-    new Uint32Array(pointBuffer.getMappedRange()).set(pointLimbs);
-    pointBuffer.unmap();
+    new Uint32Array(pointXBuffer.getMappedRange()).set(pointXLimbs);
+    pointXBuffer.unmap();
 
-    const outBuffer = device.createBuffer({
-        size: pointLimbs.byteLength,
+    const pointYBuffer = device.createBuffer({
+        size: pointYLimbs.byteLength,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+        mappedAtCreation: true,
+    });
+    new Uint32Array(pointYBuffer.getMappedRange()).set(pointYLimbs);
+    pointYBuffer.unmap();
+
+    // Output storage buffers
+    const outXBuffer = device.createBuffer({
+        size: pointXLimbs.byteLength,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
+    });
+    const outYBuffer = device.createBuffer({
+        size: pointYLimbs.byteLength,
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
     });
 
-    const readBuffer = device.createBuffer({
-        size: pointLimbs.byteLength,
+    // Read buffer
+
+    const readXBuffer = device.createBuffer({
+        size: pointXLimbs.byteLength,
+        usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+    });
+    const readYBuffer = device.createBuffer({
+        size: pointYLimbs.byteLength,
         usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
     });
 
@@ -73,8 +99,10 @@ export async function gpuMSM(
         layout: pipeline.getBindGroupLayout(0),
         entries: [
             { binding: 0, resource: { buffer: scalarBuffer } },
-            { binding: 1, resource: { buffer: pointBuffer } },
-            { binding: 2, resource: { buffer: outBuffer } },
+            { binding: 1, resource: { buffer: pointXBuffer } },
+            { binding: 2, resource: { buffer: pointYBuffer } },
+            { binding: 3, resource: { buffer: outXBuffer } },
+            { binding: 4, resource: { buffer: outYBuffer } },
         ],
     });
 
@@ -87,25 +115,36 @@ export async function gpuMSM(
     pass.end();
 
     encoder.copyBufferToBuffer(
-        outBuffer,
+        outXBuffer,
         0,
-        readBuffer,
+        readXBuffer,
         0,
-        pointLimbs.byteLength
+        pointXLimbs.byteLength
+    );
+    encoder.copyBufferToBuffer(
+        outYBuffer,
+        0,
+        readYBuffer,
+        0,
+        pointYLimbs.byteLength
     );
     device.queue.submit([encoder.finish()]);
 
     await device.queue.onSubmittedWorkDone();
 
-    // Map readback buffer
-    await readBuffer.mapAsync(GPUMapMode.READ);
-    const resultArray = new Uint32Array(readBuffer.getMappedRange()).slice();
-    readBuffer.unmap();
+    // Map readback buffers
+    await readXBuffer.mapAsync(GPUMapMode.READ);
+    const resultXArray = new Uint32Array(readXBuffer.getMappedRange()).slice();
+    readXBuffer.unmap();
+
+    await readYBuffer.mapAsync(GPUMapMode.READ);
+    const resultYArray = new Uint32Array(readYBuffer.getMappedRange()).slice();
+    readYBuffer.unmap();
 
     const results: Point[] = [];
     for (let i = 0; i < scalars.length; i++) {
-        const x = resultArray.slice(i * 16, i * 16 + 8);
-        const y = resultArray.slice(i * 16 + 8, i * 16 + 16);
+        const x = resultXArray.slice(i * 8, i * 8 + 8);
+        const y = resultYArray.slice(i * 8, i * 8 + 8);
         results.push({ x: limbsToBigInt(x), y: limbsToBigInt(y) });
     }
 

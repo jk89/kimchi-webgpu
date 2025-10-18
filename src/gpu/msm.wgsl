@@ -5,6 +5,7 @@ struct Limbs {
     limbs: array<u32, 8>
 }
 
+// Deprecated
 struct Point {
     x: Limbs,
     y: Limbs
@@ -15,10 +16,6 @@ struct ProjectivePoint {
     Y: Limbs,
     Z: Limbs
 }
-
-@group(0) @binding(0) var<storage, read> scalars: array<Limbs>;
-@group(0) @binding(1) var<storage, read> points: array<Point>;
-@group(0) @binding(2) var<storage, read_write> out: array<Point>;
 
 const PALLAS_P: array<u32, 8> = array<u32, 8>(
     0x00000001u, 0x992d30edu, 0x094cf91bu, 0x224698fcu,
@@ -244,11 +241,11 @@ fn is_infinity_proj(p: ProjectivePoint) -> bool {
     return true;
 }
 
-fn to_projective(p: Point) -> ProjectivePoint {
+fn to_projective(point_x: Limbs, point_y: Limbs) -> ProjectivePoint {
     var result: ProjectivePoint;
     // Convert to Montgomery form
-    result.X.limbs = to_montgomery(p.x.limbs);
-    result.Y.limbs = to_montgomery(p.y.limbs);
+    result.X.limbs = to_montgomery(point_x.limbs);
+    result.Y.limbs = to_montgomery(point_y.limbs);
     result.Z.limbs[0] = 1u;
     for (var i = 1u; i < 8u; i = i + 1u) {
         result.Z.limbs[i] = 0u;
@@ -375,8 +372,8 @@ fn point_add_proj(p: ProjectivePoint, q: ProjectivePoint) -> ProjectivePoint {
     return result;
 }
 
-fn scalar_mul(scalar: Limbs, point: Point) -> Point {
-    let p_proj = to_projective(point);
+fn scalar_mul(scalar: Limbs, point_x: Limbs, point_y: Limbs) -> Point {
+    let p_proj = to_projective(point_x, point_y);
     
     var result: ProjectivePoint;
     for (var i = 0u; i < 8u; i = i + 1u) {
@@ -402,6 +399,12 @@ fn scalar_mul(scalar: Limbs, point: Point) -> Point {
     return to_affine(result);
 }
 
+@group(0) @binding(0) var<storage, read> scalars: array<Limbs>;
+@group(0) @binding(1) var<storage, read> points_x: array<Limbs>;
+@group(0) @binding(2) var<storage, read> points_y: array<Limbs>;
+@group(0) @binding(3) var<storage, read_write> out_x: array<Limbs>;
+@group(0) @binding(4) var<storage, read_write> out_y: array<Limbs>;
+
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let idx = gid.x;
@@ -410,5 +413,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         return;
     }
     
-    out[idx] = scalar_mul(scalars[idx], points[idx]);
+    let out_point = scalar_mul(scalars[idx], points_x[idx], points_y[idx]);
+    out_x[idx] = out_point.x;
+    out_y[idx] = out_point.y;
 }
