@@ -15,6 +15,7 @@ ${importPallas}
 fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let idx = gid.x;
     if (idx >= arrayLength(&a)) { return; }
-    out[idx].limbs = add_mod_256(a[idx].limbs, b[idx].limbs, PALLAS_CURVE.p);
+
+    out[idx].limbs = sub_mod_256(a[idx].limbs, b[idx].limbs, PALLAS_CURVE.p);
 }
 `;

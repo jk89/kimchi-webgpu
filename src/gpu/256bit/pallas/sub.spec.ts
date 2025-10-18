@@ -1,38 +1,37 @@
-import { pallasAdd } from './add.js';
+import { pallasSub } from './sub.js';
 import { Field } from 'o1js';
 import { expect } from 'chai';
 
-describe('GPU Pallas Add', () => {
-    it('computes simple additions correctly', async () => {
+describe('GPU Pallas Sub', () => {
+    it('computes simple subtractions correctly', async () => {
         const adapter = await navigator.gpu.requestAdapter();
         const device = await adapter!.requestDevice();
 
-        const a = [1n, 2n, 123456789n];
-        const b = [3n, 4n, 987654321n];
+        const a = [3n, 10n, 987654321n];
+        const b = [1n, 4n, 123456789n];
 
-        const gpuResults = await pallasAdd(device, a, b);
+        const gpuResults = await pallasSub(device, a, b);
 
         for (let i = 0; i < a.length; i++) {
-            const expected = Field(a[i]).add(Field(b[i])).toBigInt();
+            const expected = Field(a[i]).sub(Field(b[i])).toBigInt();
             expect(gpuResults[i].toString()).to.equal(expected.toString());
         }
     });
 
-    it('wraps around Field.ORDER correctly', async () => {
+    it('wraps correctly under Field.ORDER (negative results)', async () => {
         const adapter = await navigator.gpu.requestAdapter();
         const device = await adapter!.requestDevice();
 
         const ORDER = Field.ORDER;
 
-        // cases that exceed the modulus
-        const a = [ORDER - 1n, ORDER - 5n, ORDER - 10n];
+        // Cases that would go negative before mod reduction
+        const a = [1n, 5n, 10n];
         const b = [2n, 6n, ORDER - 1n];
 
-        const gpuResults = await pallasAdd(device, a, b);
+        const gpuResults = await pallasSub(device, a, b);
 
         for (let i = 0; i < a.length; i++) {
-            // compute expected mod result using o1js
-            const expected = Field(a[i]).add(Field(b[i])).toBigInt();
+            const expected = Field(a[i]).sub(Field(b[i])).toBigInt();
             expect(gpuResults[i].toString()).to.equal(expected.toString());
         }
     });
@@ -43,13 +42,13 @@ describe('GPU Pallas Add', () => {
 
         const ORDER = Field.ORDER;
 
-        const a = [0n, 0n, ORDER - 1n];
-        const b = [0n, 5n, 1n];
+        const a = [0n, ORDER - 1n, 0n];
+        const b = [0n, 1n, ORDER - 1n];
 
-        const gpuResults = await pallasAdd(device, a, b);
+        const gpuResults = await pallasSub(device, a, b);
 
         for (let i = 0; i < a.length; i++) {
-            const expected = Field(a[i]).add(Field(b[i])).toBigInt();
+            const expected = Field(a[i]).sub(Field(b[i])).toBigInt();
             expect(gpuResults[i].toString()).to.equal(expected.toString());
         }
     });

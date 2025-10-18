@@ -29,16 +29,16 @@ export async function pallasMSM(
 
     // Prepare input data
     const scalarsData = new Uint32Array(n * LIMBS_PER_ELEMENT_256);
-    const P_xData = new Uint32Array(n * LIMBS_PER_ELEMENT_256);
-    const P_yData = new Uint32Array(n * LIMBS_PER_ELEMENT_256);
+    const Px_Data = new Uint32Array(n * LIMBS_PER_ELEMENT_256);
+    const Py_Data = new Uint32Array(n * LIMBS_PER_ELEMENT_256);
 
     for (let i = 0; i < n; i++) {
         scalarsData.set(
             bigint256ToLimbs(scalars[i]),
             i * LIMBS_PER_ELEMENT_256
         );
-        P_xData.set(bigint256ToLimbs(P[i].x), i * LIMBS_PER_ELEMENT_256);
-        P_yData.set(bigint256ToLimbs(P[i].y), i * LIMBS_PER_ELEMENT_256);
+        Px_Data.set(bigint256ToLimbs(P[i].x), i * LIMBS_PER_ELEMENT_256);
+        Py_Data.set(bigint256ToLimbs(P[i].y), i * LIMBS_PER_ELEMENT_256);
     }
 
     // Create input buffers with mappedAtCreation
@@ -55,7 +55,7 @@ export async function pallasMSM(
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
         mappedAtCreation: true,
     });
-    new Uint32Array(Px_Buffer.getMappedRange()).set(P_xData);
+    new Uint32Array(Px_Buffer.getMappedRange()).set(Px_Data);
     Px_Buffer.unmap();
 
     const Py_Buffer = device.createBuffer({
@@ -63,7 +63,7 @@ export async function pallasMSM(
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
         mappedAtCreation: true,
     });
-    new Uint32Array(Py_Buffer.getMappedRange()).set(P_yData);
+    new Uint32Array(Py_Buffer.getMappedRange()).set(Py_Data);
     Py_Buffer.unmap();
 
     // Create output buffers
