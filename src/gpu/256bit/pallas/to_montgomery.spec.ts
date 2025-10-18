@@ -1,8 +1,8 @@
 import { expect } from 'chai';
-import { toMontgomeryGPU } from './toMontgomery.js';
+import { toMontgomeryGPU } from './to_montgomery.js';
 import { Field } from 'o1js';
 
-describe('GPU toMontgomery debug', () => {
+describe('GPU toMontgomeryGPU', () => {
   it('computes Montgomery form of 1', async () => {
     const adapter = await navigator.gpu.requestAdapter();
     const device = await adapter!.requestDevice();
@@ -10,7 +10,7 @@ describe('GPU toMontgomery debug', () => {
     const a = [1n]; // input 1
     const gpuResult = await toMontgomeryGPU(device, a);
 
-    // Compute R mod P dynamically
+    // Compute R mod P
     const R = 1n << 256n;
     const expectedR = R % Field.ORDER;
 

@@ -1,8 +1,8 @@
-import { pallasAdd } from './add.js';
+import { addPallas } from './add.js';
 import { Field } from 'o1js';
 import { expect } from 'chai';
 
-describe('GPU Pallas Add', () => {
+describe('GPU addPallas', () => {
     it('computes simple additions correctly', async () => {
         const adapter = await navigator.gpu.requestAdapter();
         const device = await adapter!.requestDevice();
@@ -10,7 +10,7 @@ describe('GPU Pallas Add', () => {
         const a = [1n, 2n, 123456789n];
         const b = [3n, 4n, 987654321n];
 
-        const gpuResults = await pallasAdd(device, a, b);
+        const gpuResults = await addPallas(device, a, b);
 
         for (let i = 0; i < a.length; i++) {
             const expected = Field(a[i]).add(Field(b[i])).toBigInt();
@@ -28,7 +28,7 @@ describe('GPU Pallas Add', () => {
         const a = [ORDER - 1n, ORDER - 5n, ORDER - 10n];
         const b = [2n, 6n, ORDER - 1n];
 
-        const gpuResults = await pallasAdd(device, a, b);
+        const gpuResults = await addPallas(device, a, b);
 
         for (let i = 0; i < a.length; i++) {
             // compute expected mod result using o1js
@@ -46,7 +46,7 @@ describe('GPU Pallas Add', () => {
         const a = [0n, 0n, ORDER - 1n];
         const b = [0n, 5n, 1n];
 
-        const gpuResults = await pallasAdd(device, a, b);
+        const gpuResults = await addPallas(device, a, b);
 
         for (let i = 0; i < a.length; i++) {
             const expected = Field(a[i]).add(Field(b[i])).toBigInt();

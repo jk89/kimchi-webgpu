@@ -1,7 +1,7 @@
 import { expect } from 'chai';
 import { mulAddCarryGPU } from './mul_add_carry.js';
 
-describe('GPU mul_add_carry', () => {
+describe('GPU mulAddCarryGPU', () => {
     it('multiplies simple numbers correctly', async () => {
         const adapter = await navigator.gpu.requestAdapter();
         const device = await adapter!.requestDevice();

@@ -6,7 +6,7 @@ import {
 } from '../helpers.js';
 import addShader from './add.wgslc.js';
 
-export async function pallasAdd(
+export async function addPallas(
     device: GPUDevice,
     a: bigint[],
     b: bigint[]

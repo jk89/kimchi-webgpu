@@ -8,7 +8,7 @@ import {
 } from '../helpers.js';
 import pallasMsmShader from './msm.wgslc.js';
 
-export async function pallasMSM(
+export async function msmPallas(
     device: GPUDevice,
     scalars: bigint[],
     P: Point[]

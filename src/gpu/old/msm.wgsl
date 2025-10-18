@@ -197,7 +197,7 @@ fn to_montgomery(a: array<u32, 8>) -> array<u32, 8> {
 }
 
 // Convert from Montgomery form: a * R^-1 mod p
-fn from_montgomery(a: array<u32, 8>) -> array<u32, 8> {
+fn from_montgomery_256(a: array<u32, 8>) -> array<u32, 8> {
     var temp: array<u32, 16>;
     for (var i = 0u; i < 8u; i = i + 1u) {
         temp[i] = a[i];
@@ -270,8 +270,8 @@ fn to_affine(p: ProjectivePoint) -> Point {
     result.y.limbs = mont_mul(p.Y.limbs, z_inv);
     
     // Convert back from Montgomery form
-    result.x.limbs = from_montgomery(result.x.limbs);
-    result.y.limbs = from_montgomery(result.y.limbs);
+    result.x.limbs = from_montgomery_256(result.x.limbs);
+    result.y.limbs = from_montgomery_256(result.y.limbs);
     
     return result;
 }

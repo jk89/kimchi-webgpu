@@ -40,7 +40,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     );
 
     // Convert back from Montgomery form
-    out[idx].limbs = from_montgomery(
+    out[idx].limbs = from_montgomery_256(
         prod_mont,
         PALLAS_CURVE.mont_inv32,
         PALLAS_CURVE.p

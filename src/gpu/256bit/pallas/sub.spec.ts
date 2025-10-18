@@ -1,8 +1,8 @@
-import { pallasSub } from './sub.js';
+import { subPallas } from './sub.js';
 import { Field } from 'o1js';
 import { expect } from 'chai';
 
-describe('GPU Pallas Sub', () => {
+describe('GPU subPallas', () => {
     it('computes simple subtractions correctly', async () => {
         const adapter = await navigator.gpu.requestAdapter();
         const device = await adapter!.requestDevice();
@@ -10,7 +10,7 @@ describe('GPU Pallas Sub', () => {
         const a = [3n, 10n, 987654321n];
         const b = [1n, 4n, 123456789n];
 
-        const gpuResults = await pallasSub(device, a, b);
+        const gpuResults = await subPallas(device, a, b);
 
         for (let i = 0; i < a.length; i++) {
             const expected = Field(a[i]).sub(Field(b[i])).toBigInt();
@@ -28,7 +28,7 @@ describe('GPU Pallas Sub', () => {
         const a = [1n, 5n, 10n];
         const b = [2n, 6n, ORDER - 1n];
 
-        const gpuResults = await pallasSub(device, a, b);
+        const gpuResults = await subPallas(device, a, b);
 
         for (let i = 0; i < a.length; i++) {
             const expected = Field(a[i]).sub(Field(b[i])).toBigInt();
@@ -45,7 +45,7 @@ describe('GPU Pallas Sub', () => {
         const a = [0n, ORDER - 1n, 0n];
         const b = [0n, 1n, ORDER - 1n];
 
-        const gpuResults = await pallasSub(device, a, b);
+        const gpuResults = await subPallas(device, a, b);
 
         for (let i = 0; i < a.length; i++) {
             const expected = Field(a[i]).sub(Field(b[i])).toBigInt();

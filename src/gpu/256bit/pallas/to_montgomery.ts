@@ -4,7 +4,7 @@ import {
   BYTES_PER_ELEMENT_256,
   LIMBS_PER_ELEMENT_256
 } from '../helpers.js';
-import shader from './toMontgomery.wgslc.js';
+import shader from './to_montgomery.wgslc.js';
 
 export async function toMontgomeryGPU(
   device: GPUDevice,

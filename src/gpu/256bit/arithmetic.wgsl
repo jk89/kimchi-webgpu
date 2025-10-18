@@ -207,7 +207,7 @@ fn to_montgomery_256(a: array<u32, 8>, r2: array<u32, 8>, mont_inv32: u32, p: ar
 // Inputs: a : 256-bit integer in Montgomery form; mont_inv32, p : Montgomery parameters
 // Output: a * R^-1 mod p
 // Path: multiply by 1 using Montgomery multiplication
-fn from_montgomery(a: array<u32, 8>, mont_inv32: u32, p: array<u32, 8>) -> array<u32, 8> {
+fn from_montgomery_256(a: array<u32, 8>, mont_inv32: u32, p: array<u32, 8>) -> array<u32, 8> {
     let one: array<u32, 8> = array<u32, 8>(1u, 0u, 0u, 0u, 0u, 0u, 0u, 0u);
     return mont_mul_256(a, one, mont_inv32, p);
 }
@@ -294,8 +294,8 @@ fn to_affine_256(P: ProjectivePoint256, r2: array<u32, 8>, mont_inv32: u32, p: a
     Q.y.limbs = mont_mul_256(P.y.limbs, z_inv, mont_inv32, p);
     
     // Convert back from Montgomery form
-    Q.x.limbs = from_montgomery(Q.x.limbs, mont_inv32, p);
-    Q.y.limbs = from_montgomery(Q.y.limbs, mont_inv32, p);
+    Q.x.limbs = from_montgomery_256(Q.x.limbs, mont_inv32, p);
+    Q.y.limbs = from_montgomery_256(Q.y.limbs, mont_inv32, p);
     
     return Q;
 }

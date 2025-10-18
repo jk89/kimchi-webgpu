@@ -6,7 +6,7 @@ import {
 } from '../helpers.js';
 import mulShader from './mul.wgslc.js';
 
-export async function pallasMul(
+export async function mulPallas(
     device: GPUDevice,
     a: bigint[],
     b: bigint[]

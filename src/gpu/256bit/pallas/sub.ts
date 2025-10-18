@@ -6,7 +6,7 @@ import {
 } from '../helpers.js';
 import pallasSubShader from './sub.wgslc.js';
 
-export async function pallasSub(
+export async function subPallas(
     device: GPUDevice,
     a: bigint[],
     b: bigint[]

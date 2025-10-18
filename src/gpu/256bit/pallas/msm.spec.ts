@@ -1,6 +1,6 @@
-import { pallasMSM } from './msm.js';
+import { msmPallas } from './msm.js';
 
-describe('GPU vs CPU full Pallas MSM', function () {
+describe('GPU msmPallas 4M', function () {
     // on a 3090 we get about 215053 multiplications per second
     // up to 4 million points
     it('Stress test 4 million points/scalars', async () => {
@@ -16,9 +16,9 @@ describe('GPU vs CPU full Pallas MSM', function () {
             points.push({ x: BigInt(5 + i * 6), y: BigInt(7 + i * 6) }); // deterministic increasing sequence
         }
 
-        // GPU timing (your existing gpuMSM should produce points in normal affine form)
+        // GPU timing
         const gpuStart = performance.now();
-        const gpuResults = await pallasMSM(device, scalars, points);
+        const gpuResults = await msmPallas(device, scalars, points);
         const gpuEnd = performance.now();
         console.log(`GPU MSM took ${gpuEnd - gpuStart} ms`);
     });
