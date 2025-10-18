@@ -6,4 +6,5 @@ import '../browser.spec.js';
 import './shader-extensions/test.spec.js';
 import '../gpu/256bit/pallas/add.spec.js';
 import '../gpu/256bit/pallas/sub.spec.js';
+import '../gpu/256bit/pallas/mul.spec.js';
 import '../gpu/256bit/pallas/msm.spec.js';

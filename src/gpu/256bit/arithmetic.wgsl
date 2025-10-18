@@ -172,6 +172,9 @@ fn montgomery_reduce_256(t: array<u32, 16>, mont_inv32: u32, p: array<u32, 8>) -
 // Path: compute 512-bit product, then Montgomery reduce
 fn mont_mul_256(a: array<u32, 8>, b: array<u32, 8>, mont_inv32: u32, p: array<u32, 8>) -> array<u32, 8> {
     var product: array<u32, 16>;
+    for (var i = 0u; i < 16u; i = i + 1u) {
+        product[i] = 0u;
+    }
     
     // Compute a * b
     for (var i = 0u; i < 8u; i = i + 1u) {
