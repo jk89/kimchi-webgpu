@@ -204,18 +204,12 @@ fn to_montgomery_256(a: array<u32, 8>, r2: array<u32, 8>, mont_inv32: u32, p: ar
 }
 
 // Convert a 256-bit integer from Montgomery form
-// Inputs: a, mont_inv32, p
+// Inputs: a : 256-bit integer in Montgomery form; mont_inv32, p : Montgomery parameters
 // Output: a * R^-1 mod p
+// Path: multiply by 1 using Montgomery multiplication
 fn from_montgomery(a: array<u32, 8>, mont_inv32: u32, p: array<u32, 8>) -> array<u32, 8> {
-    var temp: array<u32, 16>;
-    for (var i = 0u; i < 8u; i = i + 1u) {
-        temp[i] = a[i];
-    }
-    // Check this
-    for (var i = 8u; i < 16u; i = i + 1u) {
-        temp[i] = 0u;
-    }
-    return montgomery_reduce_256(temp, mont_inv32, p);
+    let one: array<u32, 8> = array<u32, 8>(1u, 0u, 0u, 0u, 0u, 0u, 0u, 0u);
+    return mont_mul_256(a, one, mont_inv32, p);
 }
 
 // Modular inverse in Montgomery form

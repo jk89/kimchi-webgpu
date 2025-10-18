@@ -12,8 +12,8 @@ const PALLAS_P: array<u32, 8> = array<u32, 8>(
 
 // Pallas R² mod p, used to convert numbers into Montgomery form for fast arithmetic  
 const PALLAS_R2: array<u32, 8> = array<u32, 8>(
-    0x8c46eb20, 0x748d9d99, 0x7523e5ce, 0x1a5f79f5,
-    0xffd8ddee, 0x0, 0x0, 0x0
+    0x0000000Fu, 0x8C78ECB3u, 0x8B0DE0E7u, 0xD7D30DBDu,
+    0xC3C95D18u, 0x7797A99Bu, 0x7B9CB714u, 0x096D41AFu
 );
 
 // Pallas -p⁻¹ mod 2^32, required for Montgomery reduction in field operations  
@@ -31,7 +31,7 @@ const PALLAS_B: array<u32, 8> = array<u32, 8>(
 
 // Pallas p - 2, used for modular inverse computation
 const PALLAS_P_MINUS_2: array<u32, 8> = array<u32, 8>(
-    0xFFFFFFFFu, 0x992d30ecu, 0x094cf91bu, 0x224698fcu,
+    0xFFFFFFFFu, 0x992D30ECu, 0x094CF91Bu, 0x224698FCu,
     0x00000000u, 0x00000000u, 0x00000000u, 0x40000000u
 );
 

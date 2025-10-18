@@ -7,5 +7,7 @@ import './shader-extensions/test.spec.js';
 import '../gpu/256bit/pallas/add.spec.js';
 import '../gpu/256bit/pallas/sub.spec.js';
 import '../gpu/256bit/pallas/mul_add_carry.spec.js';
+import '../gpu/256bit/pallas/toMontgomery.spec.js';
+import '../gpu/256bit/pallas/constants.spec.js';
 import '../gpu/256bit/pallas/mul.spec.js';
 //import '../gpu/256bit/pallas/msm.spec.js';
