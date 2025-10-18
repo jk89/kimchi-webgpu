@@ -5,7 +5,6 @@ struct Limbs {
     limbs: array<u32, 8>
 }
 
-// Deprecated
 struct Point {
     x: Limbs,
     y: Limbs
