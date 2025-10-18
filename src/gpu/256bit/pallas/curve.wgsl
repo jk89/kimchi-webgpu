@@ -1,4 +1,4 @@
-// pallas.wgsl
+// curve.wgsl
 
 // @import types.wgsl
 

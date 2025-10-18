@@ -1,6 +1,6 @@
 import importTypes from '../types.wgsl';
 import importArithmetic256 from '../arithmetic.wgsl';
-import importPallas from './pallas.wgsl';
+import importPallas from './curve.wgsl';
 
 export default `
 ${importTypes}
