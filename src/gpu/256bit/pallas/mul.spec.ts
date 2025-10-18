@@ -3,6 +3,19 @@ import { Field } from 'o1js';
 import { expect } from 'chai';
 
 describe('GPU Pallas Mul', () => {
+    it('multiplies 1 and 1 correctly', async () => {
+        const adapter = await navigator.gpu.requestAdapter();
+        const device = await adapter!.requestDevice();
+
+        const a = [1n];
+        const b = [1n];
+
+        const gpuResults = await pallasMul(device, a, b);
+        const expected = Field(1).mul(1).toBigInt();
+
+        expect(gpuResults[0].toString()).to.equal(expected.toString()); // Should be 1
+    });
+
     it('computes simple multiplications correctly', async () => {
         const adapter = await navigator.gpu.requestAdapter();
         const device = await adapter!.requestDevice();

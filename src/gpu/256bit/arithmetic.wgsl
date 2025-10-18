@@ -91,28 +91,36 @@ fn mul_add_carry(a: u32, b: u32, acc: u32, carry: ptr<function, u32>) -> u32 {
     let a_hi = a >> 16u;
     let b_lo = b & 0xFFFFu;
     let b_hi = b >> 16u;
-    
+
     let p0 = a_lo * b_lo;
     let p1 = a_lo * b_hi;
     let p2 = a_hi * b_lo;
     let p3 = a_hi * b_hi;
-    
+
+    // Combine middle terms
     let mid = p1 + p2;
     let mid_carry = u32(mid < p1);
-    
+
+    // Add lower 16 bits of mid to low part
     let low = p0 + (mid << 16u);
     let low_carry = u32(low < p0);
-    
-    let high = p3 + (mid >> 16u) + mid_carry + low_carry;
-    
-    let result = low + acc;
-    let result_carry = u32(result < low);
-    
-    let final_result = result + *carry;
-    let final_carry = u32(final_result < result);
-    
-    *carry = high + result_carry + final_carry;
-    return final_result;
+
+    // Compute high 32-bit including previous carries
+    // mid_carry needs to be at bit position 32 (upper 16 bits of the high word)
+    let high = p3 + (mid >> 16u) + (mid_carry << 16u) + low_carry;
+
+    // Add acc
+    let temp = low + acc;
+    let temp_carry = u32(temp < low);
+
+    // Add existing carry
+    let final_res = temp + *carry;
+    let final_carry = u32(final_res < temp);
+
+    // Update carry
+    *carry = high + temp_carry + final_carry;
+
+    return final_res;
 }
 
 // Montgomery reduction: REDC(T) = T * R^-1 mod p
