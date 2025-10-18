@@ -5,7 +5,9 @@
     "main": "index.js",
     "type": "module",
     "scripts": {
-        "build": "tsc",
+        "build": "tsc && npm run build:wgsl && npm run copy:types",
+        "build:wgsl": "cpx \"src/**/*.wgsl\" dist/src",
+        "copy:types": "cpx \"src/types/**/*.d.ts\" dist/types/",
         "test:browser-cli": "npm run build && node dist/src/test-utils/browserWebGPUTestRunnerCli.js",
         "test:browser": "npm run build && node dist/src/test-utils/browserWebGPUTestRunner.js"
     },
@@ -24,6 +26,7 @@
         "@vitest/browser": "^3.2.4",
         "@webgpu/types": "^0.1.65",
         "chai": "^6.2.0",
+        "cpx": "^1.5.0",
         "express": "^5.1.0",
         "mocha": "^11.7.4",
         "o1js": "^2.10.0",
