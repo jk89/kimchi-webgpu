@@ -1,4 +1,4 @@
-import { expect } from 'chai';
+
 import { gpuMSM } from './msm.js';
 
 // Pallas prime and curve constants

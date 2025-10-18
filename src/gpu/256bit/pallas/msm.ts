@@ -1,12 +1,12 @@
 // pallas_msm.ts
-import { Point } from '../../types/point.js';
+import { Point } from '../../../types/point.js';
 import {
     bigint256ToLimbs,
     limbs256ToBigint,
     BYTES_PER_ELEMENT_256,
     LIMBS_PER_ELEMENT_256,
-} from './helpers.js';
-import pallasMsmShader from './pallas_msm.wgslc.js';
+} from '../helpers.js';
+import pallasMsmShader from './msm.wgslc.js';
 
 export async function pallasMSM(
     device: GPUDevice,

@@ -1,11 +1,11 @@
-import importTypes from './types.wgsl';
+import importTypes from '../types.wgsl';
+import importArithmetic256 from '../arithmetic.wgsl';
 import importPallas from './pallas.wgsl';
-import importArithmetic256 from './arithmetic.wgsl';
 
 export default `
 ${importTypes}
-${importPallas}
 ${importArithmetic256}
+${importPallas}
 
 @group(0) @binding(0) var<storage, read> scalars: array<Limbs256>;
 @group(0) @binding(1) var<storage, read> P_x: array<Limbs256>;
