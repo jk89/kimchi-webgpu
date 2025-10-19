@@ -41,4 +41,45 @@ describe('WebGPU GPU unit tests', () => {
         expect(result).to.equal(42);
         readback.unmap();
     });
+
+    it('print device limits info', async () => {
+        const adapter = await navigator.gpu.requestAdapter();
+        expect(adapter).to.exist;
+
+        const device = await adapter?.requestDevice();
+        expect(device).to.exist;
+
+        const limitKeys = [
+            'maxBufferSize',
+            'maxStorageBufferBindingSize',
+            'maxUniformBufferBindingSize',
+            'maxComputeWorkgroupStorageSize',
+            'maxComputeInvocationsPerWorkgroup',
+            'maxComputeWorkgroupSizeX',
+            'maxComputeWorkgroupSizeY',
+            'maxComputeWorkgroupSizeZ',
+            'maxBindGroups',
+            'maxBindingsPerBindGroup',
+            'maxDynamicUniformBuffersPerPipelineLayout',
+            'maxDynamicStorageBuffersPerPipelineLayout',
+        ];
+
+        console.log('=== GPU Device Limits ===');
+        for (const key of limitKeys) {
+            const value = (device.limits as any)[key];
+            let formattedValue = value.toLocaleString();
+
+            // Only format very large buffer sizes in MB
+            if (
+                (key === 'maxBufferSize' ||
+                    key === 'maxStorageBufferBindingSize') &&
+                value >= 1024 * 1024
+            ) {
+                const mb = (value / 1024 / 1024).toFixed(0);
+                formattedValue = `${value.toLocaleString()} (${mb} MB)`;
+            }
+
+            console.log(`  - ${key}: ${formattedValue}`);
+        }
+    });
 });

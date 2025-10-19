@@ -37,7 +37,7 @@ describe('Pallas curve constants', () => {
     ];
 
     it('checks prime P', () => {
-        console.log('Computed P    =', P.toString());
+        console.log('Computed P =', P.toString());
         expect(P.toString()).to.equal(P.toString()); // just print for info
     });
 
@@ -46,8 +46,8 @@ describe('Pallas curve constants', () => {
             (acc, limb) => (acc << 32n) + BigInt(limb),
             0n
         );
-        console.log('WGSL P as BigInt:', wgslPBigInt.toString());
-        console.log('Field.ORDER      :', P.toString());
+        console.log('WGSL P as BigInt =', wgslPBigInt.toString());
+        console.log('Field.ORDER:', P.toString());
         expect(P.toString()).to.equal(wgslPBigInt.toString());
     });
 
