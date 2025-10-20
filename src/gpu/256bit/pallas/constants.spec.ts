@@ -29,6 +29,7 @@ describe('Pallas curve constants', () => {
     const R = 1n << 256n;
     const R2 = (R * R) % P;
     const P_MINUS_2 = P - 2n;
+    const R_MOD_P = (1n << 256n) % P;
 
     // WGSL PALLAS_P for comparison (little-endian)
     const WGSL_P = [
@@ -68,5 +69,8 @@ describe('Pallas curve constants', () => {
 
         console.log('// PALLAS_P_MINUS_2');
         console.log(`const PALLAS_P_MINUS_2: array<u32, 8> = array<u32, 8>(\n${formatLimbsWGSL4x(bigintToLimbs(P_MINUS_2))}\n);`);
+
+        console.log('// PALLAS_R_MOD_P');
+        console.log(`const PALLAS_R_MOD_P: array<u32, 8> = array<u32, 8>(\n${formatLimbsWGSL4x(bigintToLimbs(R_MOD_P))}\n);`);
     });
 });

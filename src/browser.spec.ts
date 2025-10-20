@@ -62,6 +62,7 @@ describe('WebGPU GPU unit tests', () => {
             'maxBindingsPerBindGroup',
             'maxDynamicUniformBuffersPerPipelineLayout',
             'maxDynamicStorageBuffersPerPipelineLayout',
+            'maxComputeWorkgroupStorageSize',
         ];
 
         console.log('=== GPU Device Limits ===');
@@ -77,6 +78,10 @@ describe('WebGPU GPU unit tests', () => {
             ) {
                 const mb = (value / 1024 / 1024).toFixed(0);
                 formattedValue = `${value.toLocaleString()} (${mb} MB)`;
+            }
+            else if (key === 'maxComputeWorkgroupStorageSize') {
+                const kb = (value / 1024).toFixed(0);
+                formattedValue = `${value.toLocaleString()} (${kb} KB)`;
             }
 
             console.log(`  - ${key}: ${formattedValue}`);

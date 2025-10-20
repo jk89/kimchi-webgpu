@@ -28,11 +28,13 @@ struct ProjectivePoint256 {
 // mont_inv32 : -p⁻¹ mod 2^32 for Montgomery reduction
 // a, b   : curve coefficients
 // p_minus_2  : p - 2, used for modular inverse via Fermat's little theorem
+// r_mod_p : Montgomery representation of 1 (R mod p), used to initialize Z in projective points
 struct Curve256 {
     p: array<u32, 8>,          // Prime modulus of the curve (field size)
     r2: array<u32, 8>,         // R² mod p, used for converting numbers into Montgomery form
     mont_inv32: u32,           // -p⁻¹ mod 2^32, used in Montgomery reduction
     a: array<u32, 8>,          // Curve coefficient 'a' in the equation y² = x³ + a*x + b
     b: array<u32, 8>,          // Curve coefficient 'b' in the equation y² = x³ + a*x + b
-    p_minus_2: array<u32, 8>   // p - 2, for computing modular inverse: a^(-1) = a^(p-2) mod p
+    p_minus_2: array<u32, 8>,   // p - 2, for computing modular inverse: a^(-1) = a^(p-2) mod p
+    r_mod_p: array<u32, 8>     // Montgomery representation of 1 (R mod p), for initializing Z in projective points
 };

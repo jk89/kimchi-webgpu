@@ -35,5 +35,11 @@ const PALLAS_P_MINUS_2: array<u32, 8> = array<u32, 8>(
     0x00000000u, 0x00000000u, 0x00000000u, 0x40000000u
 );
 
+// Pallas r_mod_p : Montgomery representation of 1 (R mod p), used to initialize Z in projective points
+const PALLAS_R_MOD_P: array<u32, 8> = array<u32, 8>(
+    0xFFFFFFFDu, 0x34786D38u, 0xE41914ADu, 0x992C350Bu,
+    0xFFFFFFFFu, 0xFFFFFFFFu, 0xFFFFFFFFu, 0x3FFFFFFFu
+);
+
 // Complete Pallas curve parameters as a Curve256 instance  
-const PALLAS_CURVE: Curve256 = Curve256(PALLAS_P, PALLAS_R2, PALLAS_MONT_INV32, PALLAS_A, PALLAS_B, PALLAS_P_MINUS_2);
+const PALLAS_CURVE: Curve256 = Curve256(PALLAS_P, PALLAS_R2, PALLAS_MONT_INV32, PALLAS_A, PALLAS_B, PALLAS_P_MINUS_2, PALLAS_R_MOD_P);
