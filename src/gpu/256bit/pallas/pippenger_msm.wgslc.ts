@@ -242,7 +242,6 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 }
 `;
 
-
 // Check local id use below
 const pippengerShaderPassBi1BucketScalarWeightedPointContribution = `
 ${importTypes}
@@ -250,16 +249,17 @@ ${importArithmetic256}
 ${importPallas}
 
 @group(0) @binding(0) var<uniform, read> BUCKET_WIDTH_BITS: u32;
-@group(0) @binding(1) var<uniform, read> bucket_idx: u32;
 
-@group(1) @binding(0) var<storage, read> k: array<Limbs256>;
-@group(1) @binding(1) var<storage, read> Px: array<Limbs256>;
-@group(1) @binding(2) var<storage, read> Py: array<Limbs256>;
-@group(1) @binding(3) var<storage, read> Pz: array<Limbs256>;
+@group(1) @binding(0) var<uniform, read> bucket_idx: u32;
 
-@group(2) @binding(1) var<storage, read_write> WGGx: array<Limbs256>;
-@group(2) @binding(2) var<storage, read_write> WGGy: array<Limbs256>;
-@group(2) @binding(3) var<storage, read_write> WGGz: array<Limbs256>;
+@group(2) @binding(0) var<storage, read> k: array<Limbs256>;
+@group(2) @binding(1) var<storage, read> Px: array<Limbs256>;
+@group(2) @binding(2) var<storage, read> Py: array<Limbs256>;
+@group(2) @binding(3) var<storage, read> Pz: array<Limbs256>;
+
+@group(3) @binding(1) var<storage, read_write> WGGx: array<Limbs256>;
+@group(3) @binding(2) var<storage, read_write> WGGy: array<Limbs256>;
+@group(3) @binding(3) var<storage, read_write> WGGz: array<Limbs256>;
 
 var<workgroup> WGLx: array<Limbs256, 64>;
 var<workgroup> WGLy: array<Limbs256, 64>;
@@ -337,22 +337,21 @@ ${importTypes}
 ${importArithmetic256}
 ${importPallas}
 
-@group(0) @binding(0) var<uniform, read> bucket_idx: u32;
-@group(0) @binding(1) var<uniform, read> stride: u32;
+@group(0) @binding(0) var<uniform, read> stride: u32;
 
-@group(1) @binding(0) var<storage, read_write> WGGx: array<Limbs256>;
-@group(1) @binding(1) var<storage, read_write> WGGy: array<Limbs256>;
-@group(1) @binding(2) var<storage, read_write> WGGz: array<Limbs256>;
-
-@group(2) @binding(0) var<storage, read_write> B: array<ProjectivePoint256>;
+@group(1) @binding(0) var<uniform, read> bucket_idx: u32;
+@group(1) @binding(1) var<storage, read_write> WGGx: array<Limbs256>;
+@group(1) @binding(2) var<storage, read_write> WGGy: array<Limbs256>;
+@group(1) @binding(3) var<storage, read_write> WGGz: array<Limbs256>;
+@group(1) @binding(4) var<storage, read_write> B: array<ProjectivePoint256>;
 
 var<workgroup> WGLx: array<Limbs256, 64>;
 var<workgroup> WGLy: array<Limbs256, 64>;
 var<workgroup> WGLz: array<Limbs256, 64>;
 
-const workgroup_size = 128u;
+const WORKGROUP_SIZE = 128u;
 
-@compute @workgroup_size(workgroup_size)
+@compute @workgroup_size(WORKGROUP_SIZE)
 fn main(@builtin(global_invocation_id) gid: vec<u32>) {
     let idx = gid.x;
 
@@ -360,9 +359,9 @@ fn main(@builtin(global_invocation_id) gid: vec<u32>) {
 
     var temp: ProjectivePoint256;
 
-    // -----------------------------
+    //--------------------------
     // Workgroup-local reduction for small strides
-    // -----------------------------
+    //--------------------------
     if (stride <= workgroup_size) {
         WGLx[idx] = WGGx[idx];
         WGLy[idx] = WGGy[idx];
@@ -402,9 +401,9 @@ fn main(@builtin(global_invocation_id) gid: vec<u32>) {
         return;
     }
 
-    // -----------------------------
+    //--------------------------
     // Global memory reduction for large strides
-    // -----------------------------
+    //--------------------------
     temp = point_add_proj_256(
         ProjectivePoint256(WGGx[idx], WGGy[idx], WGGz[idx]),
         ProjectivePoint256(WGGx[idx + stride], WGGy[idx + stride], WGGz[idx + stride]),
@@ -417,9 +416,111 @@ fn main(@builtin(global_invocation_id) gid: vec<u32>) {
     WGGz[idx] = temp.z;
 }
 `;
+// Pass C: Parallel Bucket Aggregation with Point Doubling
+// Single shader, single workgroup, 128 threads = 128 buckets
+// Each thread scales its bucket, then parallel tree reduction combines them all
 
 const pippengerShaderPassCBucketAggregation = `
 ${importTypes}
 ${importArithmetic256}
 ${importPallas}
+
+@group(0) @binding(0) var<storage, read> B: array<ProjectivePoint256>;
+@group(0) @binding(1) var<storage, read_write> final_point_x: Limbs256;
+@group(0) @binding(2) var<storage, read_write> final_point_y: Limbs256;
+
+const WORKGROUP_SIZE: u32 = 128u;
+var<workgroup> scaled: array<ProjectivePoint256, WORKGROUP_SIZE>;
+
+@compute @workgroup_size(WORKGROUP_SIZE)
+fn main(@builtin(local_invocation_id) lid: vec3<u32>) {
+    let tid = lid.x;
+    let NUM_BUCKETS = arrayLength(&B);
+    
+    // Step 1: Each thread scales its bucket by its weight
+    // B[tid] gets weight (NUM_BUCKETS - tid) to match Pippenger's algorithm
+    // This ensures: B[1] has highest weight, B[NUM_BUCKETS-1] has weight 1
+    
+    if (tid < NUM_BUCKETS && tid > 0u) {
+        var weight = NUM_BUCKETS - tid;
+        var accumulator = ProjectivePoint256(
+            Limbs256(array<u32, 8>(0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u)),
+            Limbs256(array<u32, 8>(0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u)),
+            Limbs256(array<u32, 8>(0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u))
+        );
+        var temp = B[tid];
+        
+        // Binary scalar multiplication: compute weight * B[tid]
+        // Process each bit of weight from LSB to MSB
+        while (weight > 0u) {
+            if ((weight & 1u) != 0u) {
+                accumulator = point_add_proj_256(
+                    accumulator,
+                    temp,
+                    PALLAS_CURVE.r2,
+                    PALLAS_CURVE.mont_inv32,
+                    PALLAS_CURVE.p
+                );
+            }
+            weight = weight >> 1u;
+            if (weight > 0u) {
+                temp = point_double_proj_256(
+                    temp,
+                    PALLAS_CURVE.r2,
+                    PALLAS_CURVE.mont_inv32,
+                    PALLAS_CURVE.p
+                );
+            }
+        }
+        
+        scaled[tid] = accumulator;
+    } else {
+        // Thread 0 or out of bounds set a projective infinity.
+        scaled[tid] = ProjectivePoint256(
+            Limbs256(array<u32, 8>(0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u)),
+            Limbs256(array<u32, 8>(0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u)),
+            Limbs256(array<u32, 8>(0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u))
+        );
+    }
+    
+    workgroupBarrier();
+    
+    // Step 2: Tree reduction to sum all scaled buckets
+    // Binary tree: stride goes 64 -> 32 -> 16 -> 8 -> 4 -> 2 -> 1
+    var stride = WORKGROUP_SIZE / 2u;
+    while (stride > 0u) {
+        if (tid < stride) {
+            scaled[tid] = point_add_proj_256(
+                scaled[tid],
+                scaled[tid + stride],
+                PALLAS_CURVE.r2,
+                PALLAS_CURVE.mont_inv32,
+                PALLAS_CURVE.p
+            );
+        }
+        workgroupBarrier();
+        stride = stride / 2u;
+    }
+    
+    // Step 3: Thread 0 converts result to affine and writes output
+    if (tid == 0u) {
+        let final_affine = to_affine_256(
+            scaled[0],
+            PALLAS_CURVE.r2,
+            PALLAS_CURVE.mont_inv32,
+            PALLAS_CURVE.p,
+            PALLAS_CURVE.p_minus_2
+        );
+        
+        final_point_x = final_affine.x;
+        final_point_y = final_affine.y;
+    }
+}
 `;
+
+export {
+    pippengerShaderPassAProjectiveConversion,
+    pippengerShaderPassBi1BucketScalarWeightedPointContribution,
+    pippengerShaderPassBi2TreeReduceBucket,
+    pippengerShaderPassCBucketAggregation,
+};
