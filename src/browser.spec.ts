@@ -50,19 +50,40 @@ describe('WebGPU GPU unit tests', () => {
         expect(device).to.exist;
 
         const limitKeys = [
+            'maxBindGroups',
+            'maxBindGroupsPlusVertexBuffers',
+            'maxBindingsPerBindGroup',
             'maxBufferSize',
-            'maxStorageBufferBindingSize',
-            'maxUniformBufferBindingSize',
-            'maxComputeWorkgroupStorageSize',
+            'maxColorAttachmentBytesPerSample',
+            'maxColorAttachments',
             'maxComputeInvocationsPerWorkgroup',
             'maxComputeWorkgroupSizeX',
             'maxComputeWorkgroupSizeY',
             'maxComputeWorkgroupSizeZ',
-            'maxBindGroups',
-            'maxBindingsPerBindGroup',
-            'maxDynamicUniformBuffersPerPipelineLayout',
-            'maxDynamicStorageBuffersPerPipelineLayout',
             'maxComputeWorkgroupStorageSize',
+            'maxComputeWorkgroupsPerDimension',
+            'maxDynamicStorageBuffersPerPipelineLayout',
+            'maxDynamicUniformBuffersPerPipelineLayout',
+            'maxInterStageShaderComponents',
+            'maxInterStageShaderVariables',
+            'maxSampledTexturesPerShaderStage',
+            'maxSamplersPerShaderStage',
+            'maxStorageBufferBindingSize',
+            'maxStorageBuffersPerShaderStage',
+            'maxStorageTexturesPerShaderStage',
+            'maxSubgroupSize',
+            'maxTextureArrayLayers',
+            'maxTextureDimension1D',
+            'maxTextureDimension2D',
+            'maxTextureDimension3D',
+            'maxUniformBufferBindingSize',
+            'maxUniformBuffersPerShaderStage',
+            'maxVertexAttributes',
+            'maxVertexBufferArrayStride',
+            'maxVertexBuffers',
+            'minStorageBufferOffsetAlignment',
+            'minSubgroupSize',
+            'minUniformBufferOffsetAlignment',
         ];
 
         console.log('=== GPU Device Limits ===');
@@ -70,15 +91,18 @@ describe('WebGPU GPU unit tests', () => {
             const value = (device.limits as any)[key];
             let formattedValue = value.toLocaleString();
 
-            // Only format very large buffer sizes in MB
+            // Format large buffer sizes in MB
             if (
-                (key === 'maxBufferSize' ||
-                    key === 'maxStorageBufferBindingSize') &&
-                value >= 1024 * 1024
+                key === 'maxBufferSize' ||
+                key === 'maxStorageBufferBindingSize' ||
+                key === 'maxUniformBufferBindingSize'
             ) {
-                const mb = (value / 1024 / 1024).toFixed(0);
-                formattedValue = `${value.toLocaleString()} (${mb} MB)`;
+                if (value >= 1024 * 1024) {
+                    const mb = (value / 1024 / 1024).toFixed(0);
+                    formattedValue = `${value.toLocaleString()} (${mb} MB)`;
+                }
             }
+            // Format compute workgroup storage in KB
             else if (key === 'maxComputeWorkgroupStorageSize') {
                 const kb = (value / 1024).toFixed(0);
                 formattedValue = `${value.toLocaleString()} (${kb} KB)`;
