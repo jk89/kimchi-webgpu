@@ -6,6 +6,11 @@ struct Limbs256 {
     limbs: array<u32, 8>       // limbs[0] = least significant 32 bits
 };
 
+// Represents a zero limbed 256-bit integer as 8 32-bit limbs (little-endian) all zeros
+const IDENTITY_LIMBS_256: Limbs256 = Limbs256(
+    limbs = array<u32, 8>(0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u)
+);
+
 // Represents a point in affine coordinates over a 256-bit field
 // x, y coordinates are in Montgomery form
 struct Point256 {

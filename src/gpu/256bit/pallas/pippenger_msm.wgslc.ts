@@ -424,6 +424,100 @@ fn main(@builtin(global_invocation_id) gid: vec<u32>) {
     WGGz[idx] = temp.z;
 }
 `;
+
+/* 
+V2 of this shader tree reduction. Instead of a single local reduction we should always reduce locally after a copy and then write to global for the next pass
+From the host we can calculate a reduced N for each pass. Similarly for larger number of buckets we can rewrite B as Bx By and Bz allowing for circa 4 million buckets in a single buffer triple
+
+we should take the workgroup id such that for each pass we can reduce WORKGROUP_SIZE to a single point and write it left meaning we get a WORKGROUP_SIZEx
+reduction with each pass rather than a binary reduction and we get to work in local memory at each stage
+*/
+
+const pippengerShaderPassBi2TreeReduceBucket2 = `
+${importTypes}
+${importArithmetic256}
+${importPallas}
+
+@group(0) @binding(0) var<uniform, read> n: u32;
+
+@group(1) @binding(0) var<uniform, read> bucket_idx: u32;
+
+@group(2) @binding(0) var<storage, read_write> WGGx: array<Limbs256>;
+@group(2) @binding(1) var<storage, read_write> WGGy: array<Limbs256>;
+@group(2) @binding(2) var<storage, read_write> WGGz: array<Limbs256>;
+
+@group(3) @binding(0) var<storage, read_write> Bx: array<Limbs256>;
+@group(3) @binding(1) var<storage, read_write> By: array<Limbs256>;
+@group(3) @binding(2) var<storage, read_write> Bz: array<Limbs256>;
+
+// This is an upper limit if we consider how much local memory there is 16,384 (16 KB)
+// We have 3, 8 limbs points so that 3 (points) * 8 (limbs) * 4 (bytes in a u32) * 128 (work group threads) = 12,288 (12.3KB)
+// This must be a power of 2 reduce the amount of bound checking we need.
+const WORKGROUP_SIZE = 128u;
+
+var<workgroup> WGLx: array<Limbs256, WORKGROUP_SIZE>;
+var<workgroup> WGLy: array<Limbs256, WORKGROUP_SIZE>;
+var<workgroup> WGLz: array<Limbs256, WORKGROUP_SIZE>;
+
+@compute @workgroup_size(WORKGROUP_SIZE)
+fn main(@builtin(global_invocation_id) gid: vec<u32>, @builtin(local_invocation_id) lid: vec3<u32>, @builtin(workgroup_id) wgid: vec3<u32>) {
+    let idx = gid.x;
+    let local_idx = lid.x;
+    let workgroup_idx = wgid.x;
+
+    // Compute number of workgroups needed for current pass
+    let workgroups_needed = (n + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE; // Ceil(n/WORKGROUP_SIZE)
+    // No threads needed beyond n
+    if (workgroup_idx >= workgroups_needed) return; // We don't need these threads
+    // Load points into local memory, pad with zero points if out-of-bounds
+    if (idx >= n) {
+        WGLx[local_idx] = IDENTITY_LIMBS_256;
+        WGLy[local_idx] = IDENTITY_LIMBS_256;
+        WGLz[local_idx] = IDENTITY_LIMBS_256;
+    }
+    // Else we have a real point to load
+    else {
+        WGLx[local_idx] = WGGx[idx];
+        WGLy[local_idx] = WGGy[idx];
+        WGLz[local_idx] = WGGz[idx];
+    }
+    
+    // Workgroup-local binary reduction
+    let stride = WORKGROUP_SIZE / 2;
+    while (stride >= 1u) {
+        let half = stride >> 1u;
+        if (local_idx < half) {
+            let temp = point_add_proj_256(
+                ProjectivePoint256(WGLx[local_idx], WGLy[local_idx], WGLz[local_idx]),
+                ProjectivePoint256(WGLx[local_idx + half], WGLy[local_idx + half], WGLz[local_idx + half]),
+                PALLAS_CURVE.r2,
+                PALLAS_CURVE.mont_inv32,
+                PALLAS_CURVE.p
+            );
+            WGLx[local_idx] = temp.x;
+            WGLy[local_idx] = temp.y;
+            WGLz[local_idx] = temp.z;
+        }
+        workgroupBarrier();
+        stride = half;
+    }
+    
+    // Local thread 0 writes the result to WGG post reduction
+    if (local_idx == 0) {
+        WGGx[workgroup_idx] = WGLx[local_idx];
+        WGGy[workgroup_idx] = WGLy[local_idx];
+        WGGz[workgroup_idx] = WGLz[local_idx];
+    }
+    
+    // For the final pass, first global thread writes the fully reduced point to B_x,y,z
+    if (idx == 0 && n <= WORKGROUP_SIZE) {
+        Bx[bucket_idx] = WGGx[0];
+        By[bucket_idx] = WGGy[0];
+        Bz[bucket_idx] = WGGz[0];
+    }
+}
+`;
+
 // Pass C: Parallel Bucket Aggregation with Point Doubling
 // Single shader, single workgroup, 128 threads = 128 buckets
 // Each thread scales its bucket, then parallel tree reduction combines them all
