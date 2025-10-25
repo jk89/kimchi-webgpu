@@ -332,6 +332,13 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(workgroup_id) wg
 }
 `;
 
+/*
+This could be greatly optimised
+We should work in local memory reduce WORKGROUP_SIZE-> lid 0 and write left using lid id.
+We can pass N everytime and div WORKGROUP_SIZE and use this uniform rather than stride (would need to handle out of bounds carefully).
+Could even do this above if we gave another uniform and use 0 as a special flag.
+*/
+
 const pippengerShaderPassBi2TreeReduceBucket = `
 ${importTypes}
 ${importArithmetic256}
@@ -340,10 +347,11 @@ ${importPallas}
 @group(0) @binding(0) var<uniform, read> stride: u32;
 
 @group(1) @binding(0) var<uniform, read> bucket_idx: u32;
-@group(1) @binding(1) var<storage, read_write> WGGx: array<Limbs256>;
-@group(1) @binding(2) var<storage, read_write> WGGy: array<Limbs256>;
-@group(1) @binding(3) var<storage, read_write> WGGz: array<Limbs256>;
-@group(1) @binding(4) var<storage, read_write> B: array<ProjectivePoint256>;
+
+@group(2) @binding(0) var<storage, read_write> WGGx: array<Limbs256>;
+@group(2) @binding(1) var<storage, read_write> WGGy: array<Limbs256>;
+@group(2) @binding(2) var<storage, read_write> WGGz: array<Limbs256>;
+@group(2) @binding(3) var<storage, read_write> B: array<ProjectivePoint256>;
 
 var<workgroup> WGLx: array<Limbs256, 64>;
 var<workgroup> WGLy: array<Limbs256, 64>;
