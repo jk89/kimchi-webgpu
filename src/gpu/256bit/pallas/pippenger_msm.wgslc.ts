@@ -527,9 +527,13 @@ ${importTypes}
 ${importArithmetic256}
 ${importPallas}
 
-@group(0) @binding(0) var<storage, read> B: array<ProjectivePoint256>;
-@group(0) @binding(1) var<storage, read_write> final_point_x: Limbs256;
-@group(0) @binding(2) var<storage, read_write> final_point_y: Limbs256;
+// Note that we might have multiple passes of different chunks of B_x,y,z if our point didnt fit into a single 4 million chunk
+@group(0) @binding(0) var<storage, read> Bx: array<Limbs256>;
+@group(0) @binding(1) var<storage, read> By: array<Limbs256>;
+@group(0) @binding(2) var<storage, read> Bz: array<Limbs256>;
+
+@group(1) @binding(1) var<storage, read_write> final_point_x: Limbs256; // Perhaps we make this a vector
+@group(2) @binding(2) var<storage, read_write> final_point_y: Limbs256;
 
 const WORKGROUP_SIZE: u32 = 128u;
 var<workgroup> scaled: array<ProjectivePoint256, WORKGROUP_SIZE>;
@@ -616,6 +620,202 @@ fn main(@builtin(local_invocation_id) lid: vec3<u32>) {
         
         final_point_x = final_affine.x;
         final_point_y = final_affine.y;
+    }
+}
+`;
+
+/*
+V2 of stage C we will use B_x,y,x instead of a big B allow for 4 million buckets (in theory)
+And we will split this into n passes and accumulate into the final point we will keep the final point in homogenous coordinates to allow us to sum add to it.
+*/
+
+const pippengerShaderPassCBucketAggregation2 = `
+${importTypes}
+${importArithmetic256}
+${importPallas}
+
+// Note that we might have multiple passes of different chunks of B_x,y,z if our point didnt fit into a single 4 million chunk
+@group(1) @binding(0) var<storage, read> Bx: array<Limbs256>;
+@group(1) @binding(1) var<storage, read> By: array<Limbs256>;
+@group(1) @binding(2) var<storage, read> Bz: array<Limbs256>;
+
+@group(2) @binding(0) var<storage, read_write> Fx: array<Limbs256>;
+@group(2) @binding(1) var<storage, read_write> Fy: array<Limbs256>;
+@group(2) @binding(2) var<storage, read_write> Fz: array<Limbs256>;
+
+const WORKGROUP_SIZE: u32 = 128u;
+var<workgroup> scaled: array<ProjectivePoint256, WORKGROUP_SIZE>;
+
+@compute @workgroup_size(WORKGROUP_SIZE)
+fn main(@builtin(global_invocation_id) gid: vec<u32>, @builtin(local_invocation_id) lid: vec3<u32>, @builtin(workgroup_id) wgid: vec3<u32>) {
+    let idx = gid.x;
+    let local_idx = lid.x;
+    let workgroup_idx = wgid.x;
+
+    let NUM_BUCKETS = arrayLength(&Bx);
+
+    // Compute number of workgroups needed for current pass
+    let workgroups_needed = (NUM_BUCKETS + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE; // Ceil(n/WORKGROUP_SIZE)
+    // No threads needed beyond NUM_BUCKETS
+    if (workgroup_idx >= workgroups_needed) return; // We don't need these threads
+    // Load points into local memory, pad with zero points if out-of-bounds
+    if (idx >= NUM_BUCKETS) {
+        scaled[local_idx] = ProjectivePoint256(
+            IDENTITY_LIMBS_256,
+            IDENTITY_LIMBS_256,
+            IDENTITY_LIMBS_256
+        );
+    }
+    // Else we have a real point to load
+    else {
+        scaled[local_idx] = ProjectivePoint256(Bx[idx], By[idx], Bz[idx]);
+    }
+
+    // Next we need the same accumulation technique to weight the points in scaled but this is a bit confusing
+
+    // Step 1: Each thread scales its bucket by its weight
+    // B_x,y,z[idx] gets weight (NUM_BUCKETS - idx) to match Pippenger's algorithm
+    // This ensures: B[1] has highest weight, B[NUM_BUCKETS-1] has weight 1
+    
+    if (idx < NUM_BUCKETS) {
+        var weight = NUM_BUCKETS - idx;
+        var accumulator = ProjectivePoint256(IDENTITY_LIMBS_256, IDENTITY_LIMBS_256, IDENTITY_LIMBS_256);
+
+        var temp = scaled[local_idx];
+        
+        // Binary scalar multiplication: compute weight * B_x,y,z[local_idx]
+        // Process each bit of weight from LSB to MSB
+        while (weight > 0u) {
+            // Could make this more efficient for weight 1 and 2, doing directly assignment or point double without needing to do the below.
+            if ((weight & 1u) != 0u) {
+                accumulator = point_add_proj_256(
+                    accumulator,
+                    temp,
+                    PALLAS_CURVE.r2,
+                    PALLAS_CURVE.mont_inv32,
+                    PALLAS_CURVE.p
+                );
+            }
+            weight = weight >> 1u;
+            if (weight > 0u) {
+                temp = point_double_proj_256(
+                    temp,
+                    PALLAS_CURVE.r2,
+                    PALLAS_CURVE.mont_inv32,
+                    PALLAS_CURVE.p
+                );
+            }
+        }
+        
+        scaled[local_idx] = accumulator;
+    }
+    
+    workgroupBarrier();
+    
+    // Step 2: Tree reduction to sum all scaled buckets
+    // Binary tree: stride goes 64 -> 32 -> 16 -> 8 -> 4 -> 2 -> 1
+    var stride = WORKGROUP_SIZE / 2u;
+    while (stride > 0u) {
+        if (local_idx < stride) {
+            scaled[local_idx] = point_add_proj_256(
+                scaled[local_idx],
+                scaled[local_idx + stride],
+                PALLAS_CURVE.r2,
+                PALLAS_CURVE.mont_inv32,
+                PALLAS_CURVE.p
+            );
+        }
+        workgroupBarrier();
+        stride = stride / 2u;
+    }
+    
+    // Step 3: Thread 0 writes the point to F_x,y,z[workgroup_idx] which will be reduced in the final pass?
+    if (local_idx == 0u) {
+        Fx[workgroup_idx] = scaled[0].x;
+        Fy[workgroup_idx] = scaled[0].y;
+        Fz[workgroup_idx] = scaled[0].z;
+    }
+}
+`;
+
+const pippengerShaderPassDTreeReduceFinalPoint = `
+${importTypes}
+${importArithmetic256}
+${importPallas}
+
+// Uniform: number of points to reduce in this dispatch
+@group(0) @binding(0) var<uniform, read> n: u32;
+
+// Storage: partially reduced points from Pass C
+@group(1) @binding(0) var<storage, read_write> Fx: array<Limbs256>;
+@group(1) @binding(1) var<storage, read_write> Fy: array<Limbs256>;
+@group(1) @binding(2) var<storage, read_write> Fz: array<Limbs256>;
+
+// Storage for final affine point
+@group(2) @binding(0) var<storage, read_write> final_point_x: Limbs256;
+@group(2) @binding(1) var<storage, read_write> final_point_y: Limbs256;
+
+const WORKGROUP_SIZE: u32 = 128u;
+
+var<workgroup> WGLx: array<Limbs256, WORKGROUP_SIZE>;
+var<workgroup> WGLy: array<Limbs256, WORKGROUP_SIZE>;
+var<workgroup> WGLz: array<Limbs256, WORKGROUP_SIZE>;
+
+@compute @workgroup_size(WORKGROUP_SIZE)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>, @builtin(workgroup_id) wgid: vec3<u32>) {
+    let idx = gid.x;
+    let local_idx = lid.x;
+    let workgroup_idx = wgid.x;
+
+    // Number of workgroups needed
+    let workgroups_needed = (n + WORKGROUP_SIZE - 1u) / WORKGROUP_SIZE;
+    if (workgroup_idx >= workgroups_needed) { return; }
+
+    // Load points into local workgroup memory
+    if (idx >= n) {
+        WGLx[local_idx] = IDENTITY_LIMBS_256;
+        WGLy[local_idx] = IDENTITY_LIMBS_256;
+        WGLz[local_idx] = IDENTITY_LIMBS_256;
+    } else {
+        WGLx[local_idx] = Fx[idx];
+        WGLy[local_idx] = Fy[idx];
+        WGLz[local_idx] = Fz[idx];
+    }
+
+    workgroupBarrier();
+
+    // Tree reduction within workgroup
+    var stride = WORKGROUP_SIZE / 2u;
+    while (stride > 0u) {
+        if (local_idx < stride) {
+            let temp = point_add_proj_256(
+                ProjectivePoint256(WGLx[local_idx], WGLy[local_idx], WGLz[local_idx]),
+                ProjectivePoint256(WGLx[local_idx + stride], WGLy[local_idx + stride], WGLz[local_idx + stride]),
+                PALLAS_CURVE.r2,
+                PALLAS_CURVE.mont_inv32,
+                PALLAS_CURVE.p
+            );
+            WGLx[local_idx] = temp.x;
+            WGLy[local_idx] = temp.y;
+            WGLz[local_idx] = temp.z;
+        }
+        workgroupBarrier();
+        stride = stride / 2u;
+    }
+
+    // Local thread 0 writes reduced result back to global Fx/y/z
+    if (local_idx == 0u) {
+        Fx[workgroup_idx] = WGLx[0];
+        Fy[workgroup_idx] = WGLy[0];
+        Fz[workgroup_idx] = WGLz[0];
+    }
+
+    // For the final pass (single workgroup), first global thread writes affine output
+    if (idx == 0u && n <= WORKGROUP_SIZE) {
+        let finalProj = ProjectivePoint256(Fx[0], Fy[0], Fz[0]);
+        let finalAffine = point_to_affine_256(finalProj, PALLAS_CURVE.p);
+        final_point_x = finalAffine.x;
+        final_point_y = finalAffine.y;
     }
 }
 `;
