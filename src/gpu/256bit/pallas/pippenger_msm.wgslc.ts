@@ -517,6 +517,7 @@ ${importPallas}
 @group(0) @binding(2) var<storage, read_write> Px: array<Limbs256>;
 @group(0) @binding(3) var<storage, read_write> Py: array<Limbs256>;
 @group(0) @binding(4) var<storage, read_write> Pz: array<Limbs256>;
+@group(0) @binding(5) var<uniform> n: u32; 
 
 const WORKGROUP_SIZE: u32 = 64u;
 
@@ -524,7 +525,7 @@ const WORKGROUP_SIZE: u32 = 64u;
 fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let idx = gid.x;
     
-    if (idx >= arrayLength(&x)) {
+    if (idx >= n) {
         return;
     }
     
@@ -1000,5 +1001,5 @@ export {
     pippengerShaderPassBi2TreeReduceBucket,
     pippengerShaderPassCBucketAggregation,
     pippengerShaderPassDTreeReduceFinalPoint,
-    pippengerShaderPassEFinalAccumulation
+    pippengerShaderPassEFinalAccumulation,
 };

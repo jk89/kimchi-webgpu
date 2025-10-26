@@ -74,7 +74,11 @@ export async function pippengerMSMPallas(
     const verbose = config?.verbose ?? true;
 
     const maxBufferSize = device.limits.maxStorageBufferBindingSize;
-    const maxChunkN = Math.floor(maxBufferSize / BYTES_PER_ELEMENT_256);
+    const MAX_WORKGROUPS = 65535; // GPU dispatch limit
+    const maxChunkN = Math.min(
+        Math.floor(maxBufferSize / BYTES_PER_ELEMENT_256),
+        MAX_WORKGROUPS * WORKGROUP_SIZE_Bi1 // 65535 * 64 = 4,194,240
+    );
     const numBatches = Math.ceil(n / maxChunkN);
 
     if (verbose) {
@@ -93,6 +97,11 @@ export async function pippengerMSMPallas(
     let passCountC = 0;
     let passCountD = 0;
     let passCountE = 0;
+
+    const passA_N_Uniform = device.createBuffer({
+        size: 4,
+        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
 
     // ---- Layouts ----
     const layoutPassA = device.createBindGroupLayout({
@@ -122,6 +131,11 @@ export async function pippengerMSMPallas(
                 visibility: GPUShaderStage.COMPUTE,
                 buffer: { type: 'storage' },
             }, // Pz
+            {
+                binding: 5,
+                visibility: GPUShaderStage.COMPUTE,
+                buffer: { type: 'uniform' },
+            },
         ],
     });
 
@@ -363,15 +377,15 @@ export async function pippengerMSMPallas(
     // ---- Persistent buffers (buckets, final points, final point) ----
     const BxBuffer = device.createBuffer({
         size: NUMBER_OF_BUCKETS * BYTES_PER_ELEMENT_256,
-        usage: GPUBufferUsage.STORAGE,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
     });
     const ByBuffer = device.createBuffer({
         size: NUMBER_OF_BUCKETS * BYTES_PER_ELEMENT_256,
-        usage: GPUBufferUsage.STORAGE,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
     });
     const BzBuffer = device.createBuffer({
         size: NUMBER_OF_BUCKETS * BYTES_PER_ELEMENT_256,
-        usage: GPUBufferUsage.STORAGE,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
     });
 
     const batchFinalPointsSize = Math.max(
@@ -506,15 +520,15 @@ export async function pippengerMSMPallas(
 
     const WGGxBuffer = device.createBuffer({
         size: wggSizeMax,
-        usage: GPUBufferUsage.STORAGE,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
     });
     const WGGyBuffer = device.createBuffer({
         size: wggSizeMax,
-        usage: GPUBufferUsage.STORAGE,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
     });
     const WGGzBuffer = device.createBuffer({
         size: wggSizeMax,
-        usage: GPUBufferUsage.STORAGE,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
     });
 
     // Preallocated input & PP buffers (maxChunkN)
@@ -536,15 +550,15 @@ export async function pippengerMSMPallas(
     // Projective outputs preallocated
     const PPxBuffer = device.createBuffer({
         size: perBatchBufferSize,
-        usage: GPUBufferUsage.STORAGE,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
     });
     const PPyBuffer = device.createBuffer({
         size: perBatchBufferSize,
-        usage: GPUBufferUsage.STORAGE,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
     });
     const PPzBuffer = device.createBuffer({
         size: perBatchBufferSize,
-        usage: GPUBufferUsage.STORAGE,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
     });
 
     // Preallocated WGG bindgroups (reuse)
@@ -571,15 +585,15 @@ export async function pippengerMSMPallas(
     const fBufferSizeMax = maxNumWorkgroupsC * BYTES_PER_ELEMENT_256;
     const FxBuffer = device.createBuffer({
         size: fBufferSizeMax,
-        usage: GPUBufferUsage.STORAGE,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
     });
     const FyBuffer = device.createBuffer({
         size: fBufferSizeMax,
-        usage: GPUBufferUsage.STORAGE,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
     });
     const FzBuffer = device.createBuffer({
         size: fBufferSizeMax,
-        usage: GPUBufferUsage.STORAGE,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
     });
 
     // Bind groups which can be reused (point their buffers to preallocated ones)
@@ -591,6 +605,7 @@ export async function pippengerMSMPallas(
             { binding: 2, resource: { buffer: PPxBuffer } },
             { binding: 3, resource: { buffer: PPyBuffer } },
             { binding: 4, resource: { buffer: PPzBuffer } },
+            { binding: 5, resource: { buffer: passA_N_Uniform } },
         ],
     });
 
@@ -623,7 +638,7 @@ export async function pippengerMSMPallas(
     });
 
     // Command encoder
-    const commandEncoder = device.createCommandEncoder();
+    let commandEncoder = device.createCommandEncoder();
 
     // ---- Main per-batch loop: writeBuffer into preallocated buffers and reuse bind groups ----
     for (let batchIdx = 0; batchIdx < numBatches; batchIdx++) {
@@ -632,7 +647,7 @@ export async function pippengerMSMPallas(
 
         if (verbose)
             console.log(
-                `\nProcessing batch ${
+                `Processing batch ${
                     batchIdx + 1
                 }/${numBatches} (${currentBatchN} points)`
             );
@@ -653,6 +668,11 @@ export async function pippengerMSMPallas(
         device.queue.writeBuffer(kBuffer, 0, kArr);
         device.queue.writeBuffer(PxBuffer, 0, PxArr);
         device.queue.writeBuffer(PyBuffer, 0, PyArr);
+        device.queue.writeBuffer(
+            passA_N_Uniform,
+            0,
+            new Uint32Array([currentBatchN])
+        );
 
         // ---- Pass A: affine -> projective (reused bindGroupPassA) ----
         const numWorkgroupsA = Math.ceil(currentBatchN / WORKGROUP_SIZE_A);
@@ -708,6 +728,9 @@ export async function pippengerMSMPallas(
 
                 currentN_Bi2 = Math.ceil(currentN_Bi2 / WORKGROUP_SIZE_Bi2);
             }
+
+            device.queue.submit([commandEncoder.finish()]);
+            commandEncoder = device.createCommandEncoder();
         }
 
         // ---- Pass C: use preallocated Fx/Fy/Fz and reused bindGroupPassC_FOutput ----
@@ -832,9 +855,6 @@ export async function pippengerMSMPallas(
 
     finalPointXStagingBuffer.unmap();
     finalPointYStagingBuffer.unmap();
-
-    console.log('raw final X limbs[0..7]:', xView.slice(0, 8));
-    console.log('raw final Y limbs[0..7]:', yView.slice(0, 8));
 
     const finalX = limbs256ToBigint(xView);
     const finalY = limbs256ToBigint(yView);
