@@ -1,12 +1,12 @@
 import { pippengerMSMPallas } from './pippenger_msm.js';
 
-describe('GPU pippengerMSMPallas 1K', function () {
-    it('Test 1 thousand points/scalars', async () => {
+describe('GPU pippengerMSMPallas 20M', function () {
+    it('Test 20 million points/scalars', async () => {
         const adapter = await navigator.gpu.requestAdapter();
         const device = await adapter!.requestDevice();
 
         // Generate a large number of scalars and points
-        const N = 1000;
+        const N = 4000000;
         const scalars: bigint[] = [];
         const points: { x: bigint; y: bigint }[] = [];
         for (let i = 0; i < N; i++) {
@@ -16,7 +16,14 @@ describe('GPU pippengerMSMPallas 1K', function () {
 
         // GPU timing
         const gpuStart = performance.now();
-        const gpuResults = await pippengerMSMPallas(device, scalars, points, {bucketWidthBits: 4});
+        const gpuResults = await pippengerMSMPallas(device, scalars, points, {
+            bucketWidthBits: 5,
+        });
+        console.log(
+            'Result:',
+            gpuResults.x.toString(),
+            gpuResults.y.toString()
+        );
         const gpuEnd = performance.now();
         console.log(`GPU MSM took ${gpuEnd - gpuStart} ms`);
     });

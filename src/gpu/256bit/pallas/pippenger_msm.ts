@@ -818,18 +818,26 @@ export async function pippengerMSMPallas(
     // Submit and read back
     device.queue.submit([commandEncoder.finish()]);
 
+    await device.queue.onSubmittedWorkDone();
+
     await finalPointXStagingBuffer.mapAsync(GPUMapMode.READ);
     await finalPointYStagingBuffer.mapAsync(GPUMapMode.READ);
 
-    const finalX = limbs256ToBigint(
-        new Uint32Array(finalPointXStagingBuffer.getMappedRange())
-    );
-    const finalY = limbs256ToBigint(
-        new Uint32Array(finalPointYStagingBuffer.getMappedRange())
-    );
+    const xView = new Uint32Array(
+        finalPointXStagingBuffer.getMappedRange()
+    ).slice();
+    const yView = new Uint32Array(
+        finalPointYStagingBuffer.getMappedRange()
+    ).slice();
 
     finalPointXStagingBuffer.unmap();
     finalPointYStagingBuffer.unmap();
+
+    console.log('raw final X limbs[0..7]:', xView.slice(0, 8));
+    console.log('raw final Y limbs[0..7]:', yView.slice(0, 8));
+
+    const finalX = limbs256ToBigint(xView);
+    const finalY = limbs256ToBigint(yView);
 
     return { x: finalX, y: finalY };
 }
