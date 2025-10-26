@@ -549,9 +549,9 @@ ${importPallas}
 @group(2) @binding(2) var<storage, read> Py: array<Limbs256>;
 @group(2) @binding(3) var<storage, read> Pz: array<Limbs256>;
 
-@group(3) @binding(1) var<storage, read_write> WGGx: array<Limbs256>;
-@group(3) @binding(2) var<storage, read_write> WGGy: array<Limbs256>;
-@group(3) @binding(3) var<storage, read_write> WGGz: array<Limbs256>;
+@group(3) @binding(0) var<storage, read_write> WGGx: array<Limbs256>;
+@group(3) @binding(1) var<storage, read_write> WGGy: array<Limbs256>;
+@group(3) @binding(2) var<storage, read_write> WGGz: array<Limbs256>;
 
 const WORKGROUP_SIZE: u32 = 64u;
 
@@ -563,64 +563,63 @@ var<workgroup> WGLz: array<Limbs256, 64>;
 fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(workgroup_id) wgid: vec3<u32>) {
     let idx = gid.x;
     let workgroup_idx = wgid.x;
+    let local_idx = gid.x % WORKGROUP_SIZE;
 
-    if (idx >= arrayLength(&k)) {
-        return;
-    }
-
-    // Compute k_ij by extracting the bits corresponding to this bucket from k[idx]
-
-    let bit_offset = bucket_idx * BUCKET_WIDTH_BITS;
-    let limb_index = bit_offset / 32u;
-    let bit_in_limb = bit_offset % 32u;
-    let mask = (1u << BUCKET_WIDTH_BITS) - 1u;
-
-    var k_ij = 0u;
-    if (bit_in_limb + BUCKET_WIDTH_BITS) <= 32u {
-        k_ij = (k[idx].limbs[limb_index] >> bit_in_limb) & mask;
-    }
-    else {
-        let bits_in_first_limb = 32u - bit_in_limb;
-        let low_bits = k[idx].limbs[limb_index] >> bit_in_limb;
-        let high_bits = k[idx].limbs[limb_index + 1u] << bits_in_first_limb;
-        k_ij = (low_bits | high_bits) & mask;
-    }
-
-    if (k_ij == bucket_idx) {
-        WGLx[idx] = Px[idx];
-        WGLy[idx] = Py[idx];
-        WGLz[idx] = Pz[idx];
-    }
-    else {
-        WGLx[idx] = IDENTITY_LIMBS_256;
-        WGLy[idx] = IDENTITY_LIMBS_256;
-        WGLz[idx] = IDENTITY_LIMBS_256;
-    }
+    // Initialize workgroup memory with identity points for all threads
+    WGLx[local_idx] = IDENTITY_LIMBS_256;
+    WGLy[local_idx] = IDENTITY_LIMBS_256;
+    WGLz[local_idx] = IDENTITY_LIMBS_256;
+    
     workgroupBarrier();
 
-    // Tree reduce the workgroup memory bucket values by binary halving.
+    // Only process valid indices, but all threads participate in reduction
+    if (idx < arrayLength(&k)) {
+        // Compute k_ij by extracting the bits corresponding to this bucket from k[idx]
+        let bit_offset = bucket_idx * BUCKET_WIDTH_BITS;
+        let limb_index = bit_offset / 32u;
+        let bit_in_limb = bit_offset % 32u;
+        let mask = (1u << BUCKET_WIDTH_BITS) - 1u;
 
+        var k_ij = 0u;
+        if (bit_in_limb + BUCKET_WIDTH_BITS) <= 32u {
+            k_ij = (k[idx].limbs[limb_index] >> bit_in_limb) & mask;
+        } else {
+            let bits_in_first_limb = 32u - bit_in_limb;
+            let low_bits = k[idx].limbs[limb_index] >> bit_in_limb;
+            let high_bits = k[idx].limbs[limb_index + 1u] << bits_in_first_limb;
+            k_ij = (low_bits | high_bits) & mask;
+        }
+
+        if (k_ij == bucket_idx) {
+            WGLx[local_idx] = Px[idx];
+            WGLy[local_idx] = Py[idx];
+            WGLz[local_idx] = Pz[idx];
+        }
+    }
+    
+    workgroupBarrier();
+
+    // Tree reduce the workgroup memory bucket values by binary halving
     var stride = WORKGROUP_SIZE / 2u;
     while (stride > 0u) {
-        if (idx < stride) {
-           let temp = point_add_proj_256(
-              ProjectivePoint256(WGLx[idx], WGLy[idx], WGLz[idx]),
-              ProjectivePoint256(WGLx[idx + stride], WGLy[idx + stride], WGLz[idx + stride]),
-              PALLAS_CURVE.r2,
-              PALLAS_CURVE.mont_inv32,
-              PALLAS_CURVE.p
-           );
-           WGLx[idx] = temp.x;
-           WGLy[idx] = temp.y;
-           WGLz[idx] = temp.z;
+        if (local_idx < stride) {
+            let temp = point_add_proj_256(
+                ProjectivePoint256(WGLx[local_idx], WGLy[local_idx], WGLz[local_idx]),
+                ProjectivePoint256(WGLx[local_idx + stride], WGLy[local_idx + stride], WGLz[local_idx + stride]),
+                PALLAS_CURVE.r2,
+                PALLAS_CURVE.mont_inv32,
+                PALLAS_CURVE.p
+            );
+            WGLx[local_idx] = temp.x;
+            WGLy[local_idx] = temp.y;
+            WGLz[local_idx] = temp.z;
         }
         workgroupBarrier();
         stride = stride / 2u;
     }
 
-    // Set the global buffer based on the value of WGL_x,y,z[0] which contains the reduction.
-
-    if (idx == 0) {
+    // Set the global buffer based on the value of WGL_x,y,z[0] which contains the reduction
+    if (local_idx == 0) {
         WGGx[workgroup_idx] = WGLx[0];
         WGGy[workgroup_idx] = WGLy[0];
         WGGz[workgroup_idx] = WGLz[0];
@@ -721,13 +720,13 @@ ${importArithmetic256}
 ${importPallas}
 
 // Note that we might have multiple passes of different chunks of B_x,y,z if our point didnt fit into a single 4 million chunk
-@group(1) @binding(0) var<storage, read> Bx: array<Limbs256>;
-@group(1) @binding(1) var<storage, read> By: array<Limbs256>;
-@group(1) @binding(2) var<storage, read> Bz: array<Limbs256>;
+@group(0) @binding(0) var<storage, read_write> Bx: array<Limbs256>;
+@group(0) @binding(1) var<storage, read_write> By: array<Limbs256>;
+@group(0) @binding(2) var<storage, read_write> Bz: array<Limbs256>;
 
-@group(2) @binding(0) var<storage, read_write> Fx: array<Limbs256>;
-@group(2) @binding(1) var<storage, read_write> Fy: array<Limbs256>;
-@group(2) @binding(2) var<storage, read_write> Fz: array<Limbs256>;
+@group(1) @binding(0) var<storage, read_write> Fx: array<Limbs256>;
+@group(1) @binding(1) var<storage, read_write> Fy: array<Limbs256>;
+@group(1) @binding(2) var<storage, read_write> Fz: array<Limbs256>;
 
 const WORKGROUP_SIZE: u32 = 64u;
 var<workgroup> scaled: array<ProjectivePoint256, WORKGROUP_SIZE>;

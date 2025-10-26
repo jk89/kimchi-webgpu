@@ -73,7 +73,7 @@ export async function pippengerMSMPallas(
     const NUMBER_OF_BUCKETS = 1 << BUCKET_WIDTH_BITS;
     const verbose = config?.verbose ?? true;
 
-    const maxBufferSize = device.limits.maxBufferSize;
+    const maxBufferSize = device.limits.maxStorageBufferBindingSize;
     const maxChunkN = Math.floor(maxBufferSize / BYTES_PER_ELEMENT_256);
     const numBatches = Math.ceil(n / maxChunkN);
 
@@ -101,27 +101,27 @@ export async function pippengerMSMPallas(
                 binding: 0,
                 visibility: GPUShaderStage.COMPUTE,
                 buffer: { type: 'read-only-storage' },
-            }, // Px
+            }, // x
             {
                 binding: 1,
                 visibility: GPUShaderStage.COMPUTE,
                 buffer: { type: 'read-only-storage' },
-            }, // Py
+            }, // y
             {
                 binding: 2,
                 visibility: GPUShaderStage.COMPUTE,
                 buffer: { type: 'storage' },
-            }, // PPx
+            }, // Px
             {
                 binding: 3,
                 visibility: GPUShaderStage.COMPUTE,
                 buffer: { type: 'storage' },
-            }, // PPy
+            }, // Py
             {
                 binding: 4,
                 visibility: GPUShaderStage.COMPUTE,
                 buffer: { type: 'storage' },
-            }, // PPz
+            }, // Pz
         ],
     });
 
@@ -136,6 +136,16 @@ export async function pippengerMSMPallas(
     });
 
     const layoutBucketIdx = device.createBindGroupLayout({
+        entries: [
+            {
+                binding: 0,
+                visibility: GPUShaderStage.COMPUTE,
+                buffer: { type: 'uniform' },
+            },
+        ],
+    });
+
+    const layoutUniformN = device.createBindGroupLayout({
         entries: [
             {
                 binding: 0,
@@ -191,6 +201,41 @@ export async function pippengerMSMPallas(
     });
 
     const layoutBucketsStorage = device.createBindGroupLayout({
+        entries: [
+            {
+                binding: 0,
+                visibility: GPUShaderStage.COMPUTE,
+                buffer: { type: 'storage' },
+            },
+            {
+                binding: 1,
+                visibility: GPUShaderStage.COMPUTE,
+                buffer: { type: 'storage' },
+            },
+            {
+                binding: 2,
+                visibility: GPUShaderStage.COMPUTE,
+                buffer: { type: 'storage' },
+            },
+        ],
+    });
+
+    const layoutUniformN_BatchIdx = device.createBindGroupLayout({
+        entries: [
+            {
+                binding: 0,
+                visibility: GPUShaderStage.COMPUTE,
+                buffer: { type: 'uniform' },
+            },
+            {
+                binding: 1,
+                visibility: GPUShaderStage.COMPUTE,
+                buffer: { type: 'uniform' },
+            },
+        ],
+    });
+
+    const layoutFStorage = device.createBindGroupLayout({
         entries: [
             {
                 binding: 0,
@@ -277,7 +322,7 @@ export async function pippengerMSMPallas(
     const pipelineBi2 = device.createComputePipeline({
         layout: device.createPipelineLayout({
             bindGroupLayouts: [
-                layoutBucketWidthBits,
+                layoutUniformN,
                 layoutBucketIdx,
                 layoutWGG,
                 layoutBucketsStorage,
@@ -288,11 +333,7 @@ export async function pippengerMSMPallas(
 
     const pipelineC = device.createComputePipeline({
         layout: device.createPipelineLayout({
-            bindGroupLayouts: [
-                layoutBucketsStorage,
-                layoutBucketsStorage,
-                layoutBatchFinalPoints,
-            ],
+            bindGroupLayouts: [layoutBucketsStorage, layoutFStorage],
         }),
         compute: { module: shaderModules.C, entryPoint: 'main' },
     });
@@ -300,8 +341,8 @@ export async function pippengerMSMPallas(
     const pipelineD = device.createComputePipeline({
         layout: device.createPipelineLayout({
             bindGroupLayouts: [
-                layoutBucketsStorage,
-                layoutBatchFinalPoints,
+                layoutUniformN_BatchIdx,
+                layoutFStorage,
                 layoutBatchFinalPoints,
             ],
         }),
@@ -311,7 +352,7 @@ export async function pippengerMSMPallas(
     const pipelineE = device.createComputePipeline({
         layout: device.createPipelineLayout({
             bindGroupLayouts: [
-                layoutBucketsStorage,
+                layoutUniformN,
                 layoutBatchFinalPoints,
                 layoutFinalPoint,
             ],
@@ -352,17 +393,20 @@ export async function pippengerMSMPallas(
 
     const finalPointXBuffer = device.createBuffer({
         size: BYTES_PER_ELEMENT_256,
-        usage:
-            GPUBufferUsage.STORAGE |
-            GPUBufferUsage.COPY_SRC |
-            GPUBufferUsage.MAP_READ,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
     });
     const finalPointYBuffer = device.createBuffer({
         size: BYTES_PER_ELEMENT_256,
-        usage:
-            GPUBufferUsage.STORAGE |
-            GPUBufferUsage.COPY_SRC |
-            GPUBufferUsage.MAP_READ,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
+    });
+
+    const finalPointXStagingBuffer = device.createBuffer({
+        size: BYTES_PER_ELEMENT_256,
+        usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
+    });
+    const finalPointYStagingBuffer = device.createBuffer({
+        size: BYTES_PER_ELEMENT_256,
+        usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
     });
 
     // ---- Persistent bind groups ----
@@ -415,7 +459,7 @@ export async function pippengerMSMPallas(
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
     const bindGroupBi2N = device.createBindGroup({
-        layout: pipelineBi2.getBindGroupLayout(0),
+        layout: layoutUniformN,
         entries: [{ binding: 0, resource: { buffer: bi2NUniform } }],
     });
 
@@ -429,7 +473,7 @@ export async function pippengerMSMPallas(
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
     const bindGroupPassD_Uniforms = device.createBindGroup({
-        layout: pipelineD.getBindGroupLayout(0),
+        layout: layoutUniformN_BatchIdx,
         entries: [
             { binding: 0, resource: { buffer: passD_N_Uniform } },
             { binding: 1, resource: { buffer: passD_batchIdxUniform } },
@@ -442,7 +486,7 @@ export async function pippengerMSMPallas(
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
     const bindGroupPassE_N = device.createBindGroup({
-        layout: pipelineE.getBindGroupLayout(0),
+        layout: layoutUniformN,
         entries: [{ binding: 0, resource: { buffer: passE_N_Uniform } }],
     });
 
@@ -560,8 +604,8 @@ export async function pippengerMSMPallas(
         ],
     });
 
-    const bindGroupPassC_Output = device.createBindGroup({
-        layout: pipelineC.getBindGroupLayout(2),
+    const bindGroupPassC_FOutput = device.createBindGroup({
+        layout: layoutFStorage,
         entries: [
             { binding: 0, resource: { buffer: FxBuffer } },
             { binding: 1, resource: { buffer: FyBuffer } },
@@ -570,7 +614,7 @@ export async function pippengerMSMPallas(
     });
 
     const bindGroupPassD_Input = device.createBindGroup({
-        layout: pipelineD.getBindGroupLayout(1),
+        layout: layoutFStorage,
         entries: [
             { binding: 0, resource: { buffer: FxBuffer } },
             { binding: 1, resource: { buffer: FyBuffer } },
@@ -664,12 +708,12 @@ export async function pippengerMSMPallas(
             }
         }
 
-        // ---- Pass C: use preallocated Fx/Fy/Fz and reused bindGroupPassC_Output ----
+        // ---- Pass C: use preallocated Fx/Fy/Fz and reused bindGroupPassC_FOutput ----
         const numWorkgroupsC = Math.ceil(NUMBER_OF_BUCKETS / WORKGROUP_SIZE_C);
         const passC = commandEncoder.beginComputePass();
         passC.setPipeline(pipelineC);
-        passC.setBindGroup(1, bindGroupBucketsStorage);
-        passC.setBindGroup(2, bindGroupPassC_Output);
+        passC.setBindGroup(0, bindGroupBucketsStorage);
+        passC.setBindGroup(1, bindGroupPassC_FOutput);
         passC.dispatchWorkgroups(numWorkgroupsC);
         passC.end();
         passCountC++;
@@ -730,6 +774,21 @@ export async function pippengerMSMPallas(
         }
     }
 
+    commandEncoder.copyBufferToBuffer(
+        finalPointXBuffer,
+        0,
+        finalPointXStagingBuffer,
+        0,
+        BYTES_PER_ELEMENT_256
+    );
+    commandEncoder.copyBufferToBuffer(
+        finalPointYBuffer,
+        0,
+        finalPointYStagingBuffer,
+        0,
+        BYTES_PER_ELEMENT_256
+    );
+
     // Print pass counts before submission
     if (verbose) {
         console.log(`\n--- Actual Dispatches per Stage ---`);
@@ -755,18 +814,18 @@ export async function pippengerMSMPallas(
     // Submit and read back
     device.queue.submit([commandEncoder.finish()]);
 
-    await finalPointXBuffer.mapAsync(GPUMapMode.READ);
-    await finalPointYBuffer.mapAsync(GPUMapMode.READ);
+    await finalPointXStagingBuffer.mapAsync(GPUMapMode.READ);
+    await finalPointYStagingBuffer.mapAsync(GPUMapMode.READ);
 
     const finalX = limbs256ToBigint(
-        new Uint32Array(finalPointXBuffer.getMappedRange())
+        new Uint32Array(finalPointXStagingBuffer.getMappedRange())
     );
     const finalY = limbs256ToBigint(
-        new Uint32Array(finalPointYBuffer.getMappedRange())
+        new Uint32Array(finalPointYStagingBuffer.getMappedRange())
     );
 
-    finalPointXBuffer.unmap();
-    finalPointYBuffer.unmap();
+    finalPointXStagingBuffer.unmap();
+    finalPointYStagingBuffer.unmap();
 
     return { x: finalX, y: finalY };
 }
