@@ -685,7 +685,7 @@ export async function pippengerMSMPallas(
 
             // Bi2 reduce (reuse bi2NUniform)
             let currentN_Bi2 = numWorkgroupsBi1;
-            while (currentN_Bi2 > 1) {
+            while (currentN_Bi2 >= 1) {
                 device.queue.writeBuffer(
                     bi2NUniform,
                     0,
@@ -704,6 +704,8 @@ export async function pippengerMSMPallas(
                 passBi2.end();
                 passCountBi2++;
 
+                if (currentN_Bi2 === 1) break;
+
                 currentN_Bi2 = Math.ceil(currentN_Bi2 / WORKGROUP_SIZE_Bi2);
             }
         }
@@ -720,7 +722,7 @@ export async function pippengerMSMPallas(
 
         // ---- Pass D: reduce F -> batchFinalPoints (reused bindGroupPassD_Input & bindGroupPassD_Uniforms) ----
         let currentN_D = numWorkgroupsC;
-        while (currentN_D > 1) {
+        while (currentN_D >= 1) {
             device.queue.writeBuffer(
                 passD_N_Uniform,
                 0,
@@ -740,6 +742,8 @@ export async function pippengerMSMPallas(
             passD.dispatchWorkgroups(Math.ceil(currentN_D / WORKGROUP_SIZE_D));
             passD.end();
             passCountD++;
+
+            if (currentN_D === 1) break;
 
             currentN_D = Math.ceil(currentN_D / WORKGROUP_SIZE_D);
         }
