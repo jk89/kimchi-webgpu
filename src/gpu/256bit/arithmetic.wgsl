@@ -278,7 +278,7 @@ fn to_projective_256(x: Limbs256, y: Limbs256, r2: array<u32, 8>, mont_inv32: u3
 //   x_affine = x * z_inv, y_affine = y * z_inv
 //   Convert x_affine, y_affine from Montgomery form
 fn to_affine_256(P: ProjectivePoint256, r2: array<u32, 8>, mont_inv32: u32, p: array<u32, 8>, p_minus_2: array<u32, 8>) -> Point256 {
-    if (is_infinity_proj_256(P)) {
+    if (is_infinity_proj_256(P)) { // Note is_infinity_proj_256 returns are not constant time and so would be vulnerable to timing attacks FIXME
         var inf: Point256;
         for (var i = 0u; i < 8u; i = i + 1u) {
             inf.x.limbs[i] = 0u;
@@ -311,7 +311,7 @@ fn to_affine_256(P: ProjectivePoint256, r2: array<u32, 8>, mont_inv32: u32, p: a
 //   y3 = m*(s - x3) - 8*yyyy
 //   z3 = (y+z)^2 - yy - zz
 fn point_double_proj_256(P: ProjectivePoint256, r2: array<u32, 8>, mont_inv32: u32, p: array<u32, 8>) -> ProjectivePoint256 {
-    if (is_infinity_proj_256(P)) { return P; }
+    if (is_infinity_proj_256(P)) { return P; } // Note is_infinity_proj_256 returns are not constant time and so would be vulnerable to timing attacks FIXME
     
     let xx = mont_mul_256(P.x.limbs, P.x.limbs, mont_inv32, p);
     let yy = mont_mul_256(P.y.limbs, P.y.limbs, mont_inv32, p);
@@ -363,6 +363,7 @@ fn point_double_proj_256(P: ProjectivePoint256, r2: array<u32, 8>, mont_inv32: u
 //   y3 = r*(v - x3) - 2*s1*j
 //   z3 = ((z1+z2)^2 - z1z1 - z2z2)*h
 fn point_add_proj_256(P: ProjectivePoint256, Q: ProjectivePoint256, r2: array<u32, 8>, mont_inv32: u32, p: array<u32, 8>) -> ProjectivePoint256 {
+    // Note is_infinity_proj_256 returns are not constant time and so would be vulnerable to timing attacks FIXME
     if (is_infinity_proj_256(P)) { return Q; }
     if (is_infinity_proj_256(Q)) { return P; }
     
